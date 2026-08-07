@@ -600,6 +600,7 @@ struct Media: View {
     @Default(.sneakPeekStyles) var sneakPeekStyles
 
     @Default(.enableLyrics) var enableLyrics
+    @Default(.lyricDisplayMode) var lyricDisplayMode
 
     var body: some View {
         Form {
@@ -685,6 +686,12 @@ struct Media: View {
                         customBadge(text: "Beta")
                     }
                 }
+                Picker("Lyrics display", selection: $lyricDisplayMode) {
+                    ForEach(LyricDisplayMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .disabled(!enableLyrics)
             } header: {
                 Text("Media controls")
             }  footer: {

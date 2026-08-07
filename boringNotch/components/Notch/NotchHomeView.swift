@@ -154,37 +154,71 @@ struct MusicControlsView: View {
             )
             .fontWeight(.medium)
             if Defaults[.enableLyrics] {
-                TimelineView(.animation(minimumInterval: 0.25)) { timeline in
-                    let currentElapsed: Double = {
-                        guard musicManager.isPlaying else { return musicManager.elapsedTime }
-                        let delta = timeline.date.timeIntervalSince(musicManager.timestampDate)
-                        let progressed = musicManager.elapsedTime + (delta * musicManager.playbackRate)
-                        return min(max(progressed, 0), musicManager.songDuration)
-                    }()
-                    let line: String = {
-                        if musicManager.isFetchingLyrics { return "Loading lyrics…" }
-                        if !musicManager.syncedLyrics.isEmpty {
-                            return musicManager.lyricLine(at: currentElapsed)
-                        }
-                        let trimmed = musicManager.currentLyrics.trimmingCharacters(in: .whitespacesAndNewlines)
-                        return trimmed.isEmpty ? "No lyrics found" : trimmed.replacingOccurrences(of: "\n", with: " ")
-                    }()
-                    let isPersian = line.unicodeScalars.contains { scalar in
-                        let v = scalar.value
-                        return v >= 0x0600 && v <= 0x06FF
+                lyricsView(width: width)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lyricsView(width: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 0.25)) { timeline in
+            let currentElapsed: Double = {
+                guard musicManager.isPlaying else { return musicManager.elapsedTime }
+                let delta = timeline.date.timeIntervalSince(musicManager.timestampDate)
+                let progressed = musicManager.elapsedTime + (delta * musicManager.playbackRate)
+                return min(max(progressed, 0), musicManager.songDuration)
+            }()
+
+            if Defaults[.lyricDisplayMode] == .karaoke,
+               !musicManager.isFetchingLyrics,
+               !musicManager.syncedLyrics.isEmpty {
+                let context = musicManager.lyricContext(at: currentElapsed)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let previous = context.previous {
+                        Text(previous)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    MarqueeText(
-                        .constant(line),
-                        font: .subheadline,
-                        nsFont: .subheadline,
-                        textColor: musicManager.isFetchingLyrics ? .gray.opacity(0.7) : .gray,
-                        frameWidth: width
-                    )
-                    .font(isPersian ? .custom("Vazirmatn-Regular", size: NSFont.preferredFont(forTextStyle: .subheadline).pointSize) : .subheadline)
-                    .lineLimit(1)
-                    .opacity(musicManager.isPlaying ? 1 : 0)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    Text(context.current)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                    if let next = context.next {
+                        Text(next)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
+                .frame(maxWidth: width, alignment: .leading)
+                .opacity(musicManager.isPlaying ? 1 : 0)
+                .animation(.easeInOut(duration: 0.2), value: context.current)
+            } else {
+                let line: String = {
+                    if musicManager.isFetchingLyrics { return "Loading lyrics…" }
+                    if !musicManager.syncedLyrics.isEmpty {
+                        return musicManager.lyricLine(at: currentElapsed)
+                    }
+                    let trimmed = musicManager.currentLyrics.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? "No lyrics found" : trimmed.replacingOccurrences(of: "\n", with: " ")
+                }()
+                let isPersian = line.unicodeScalars.contains { scalar in
+                    let value = scalar.value
+                    return value >= 0x0600 && value <= 0x06FF
+                }
+                MarqueeText(
+                    .constant(line),
+                    font: .subheadline,
+                    nsFont: .subheadline,
+                    textColor: musicManager.isFetchingLyrics ? .gray.opacity(0.7) : .gray,
+                    frameWidth: width
+                )
+                .font(isPersian ? .custom("Vazirmatn-Regular", size: NSFont.preferredFont(forTextStyle: .subheadline).pointSize) : .subheadline)
+                .lineLimit(1)
+                .opacity(musicManager.isPlaying ? 1 : 0)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }

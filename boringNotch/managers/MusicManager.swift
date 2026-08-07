@@ -506,6 +506,30 @@ class MusicManager: ObservableObject {
         return syncedLyrics[idx].text
     }
 
+    func lyricContext(at elapsed: Double) -> (previous: String?, current: String, next: String?) {
+        guard !syncedLyrics.isEmpty else {
+            let lyric = currentLyrics.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (nil, lyric, nil)
+        }
+
+        var low = 0
+        var high = syncedLyrics.count - 1
+        var index = 0
+        while low <= high {
+            let mid = (low + high) / 2
+            if syncedLyrics[mid].time <= elapsed {
+                index = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+
+        let previous = index > 0 ? syncedLyrics[index - 1].text : nil
+        let next = index + 1 < syncedLyrics.count ? syncedLyrics[index + 1].text : nil
+        return (previous, syncedLyrics[index].text, next)
+    }
+
     private func triggerFlipAnimation() {
         // Cancel any existing animation
         flipWorkItem?.cancel()

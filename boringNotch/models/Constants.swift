@@ -59,6 +59,13 @@ enum SneakPeekStyle: String, CaseIterable, Identifiable, Defaults.Serializable {
     var id: String { self.rawValue }
 }
 
+enum LyricDisplayMode: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case compact = "Compact"
+    case karaoke = "Karaoke"
+
+    var id: String { self.rawValue }
+}
+
 // Action to perform when Option (⌥) is held while pressing media keys
 enum OptionKeyAction: String, CaseIterable, Identifiable, Defaults.Serializable {
     case openSettings = "Open System Settings"
@@ -129,6 +136,7 @@ extension Defaults.Keys {
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     static let showShuffleAndRepeat = Key<Bool>("showShuffleAndRepeat", default: false)
     static let enableLyrics = Key<Bool>("enableLyrics", default: false)
+    static let lyricDisplayMode = Key<LyricDisplayMode>("lyricDisplayMode", default: .compact)
     static let musicControlSlots = Key<[MusicControlButton]>(
         "musicControlSlots",
         default: MusicControlButton.defaultLayout
