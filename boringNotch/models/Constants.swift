@@ -66,6 +66,44 @@ enum LyricDisplayMode: String, CaseIterable, Identifiable, Defaults.Serializable
     var id: String { self.rawValue }
 }
 
+enum LyricAlignment: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case leading = "Left"
+    case center = "Center"
+
+    var id: String { self.rawValue }
+
+    var textAlignment: TextAlignment {
+        self == .leading ? .leading : .center
+    }
+
+    var frameAlignment: Alignment {
+        self == .leading ? .leading : .center
+    }
+}
+
+enum LyricTextSize: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case small = "Small"
+    case medium = "Medium"
+    case large = "Large"
+
+    var id: String { self.rawValue }
+
+    var activeFont: Font {
+        switch self {
+        case .small: .caption.weight(.semibold)
+        case .medium: .subheadline.weight(.semibold)
+        case .large: .body.weight(.semibold)
+        }
+    }
+
+    var surroundingFont: Font {
+        switch self {
+        case .small: .caption2
+        case .medium, .large: .caption
+        }
+    }
+}
+
 // Action to perform when Option (⌥) is held while pressing media keys
 enum OptionKeyAction: String, CaseIterable, Identifiable, Defaults.Serializable {
     case openSettings = "Open System Settings"
@@ -137,6 +175,9 @@ extension Defaults.Keys {
     static let showShuffleAndRepeat = Key<Bool>("showShuffleAndRepeat", default: false)
     static let enableLyrics = Key<Bool>("enableLyrics", default: false)
     static let lyricDisplayMode = Key<LyricDisplayMode>("lyricDisplayMode", default: .compact)
+    static let lyricAlignment = Key<LyricAlignment>("lyricAlignment", default: .leading)
+    static let lyricTextSize = Key<LyricTextSize>("lyricTextSize", default: .medium)
+    static let animateLyricTransitions = Key<Bool>("animateLyricTransitions", default: true)
     static let musicControlSlots = Key<[MusicControlButton]>(
         "musicControlSlots",
         default: MusicControlButton.defaultLayout

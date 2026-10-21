@@ -601,6 +601,9 @@ struct Media: View {
 
     @Default(.enableLyrics) var enableLyrics
     @Default(.lyricDisplayMode) var lyricDisplayMode
+    @Default(.lyricAlignment) var lyricAlignment
+    @Default(.lyricTextSize) var lyricTextSize
+    @Default(.animateLyricTransitions) var animateLyricTransitions
 
     var body: some View {
         Form {
@@ -679,22 +682,50 @@ struct Media: View {
             }
             
             Section {
-                MusicSlotConfigurationView()
                 Defaults.Toggle(key: .enableLyrics) {
                     HStack {
-                        Text("Show lyrics below artist name")
+                        Text("Show lyrics in the player")
                         customBadge(text: "Beta")
                     }
                 }
-                Picker("Lyrics display", selection: $lyricDisplayMode) {
-                    ForEach(LyricDisplayMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("Display mode", selection: $lyricDisplayMode) {
+                        ForEach(LyricDisplayMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
                     }
+                    .pickerStyle(.segmented)
+
+                    Picker("Text alignment", selection: $lyricAlignment) {
+                        ForEach(LyricAlignment.allCases) { alignment in
+                            Text(alignment.rawValue).tag(alignment)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Picker("Text size", selection: $lyricTextSize) {
+                        ForEach(LyricTextSize.allCases) { size in
+                            Text(size.rawValue).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Toggle("Animate lyric transitions", isOn: $animateLyricTransitions)
                 }
                 .disabled(!enableLyrics)
             } header: {
-                Text("Media controls")
+                Text("Lyrics")
             }  footer: {
+                Text("Karaoke shows the previous, current, and next synced lyric lines.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                MusicSlotConfigurationView()
+            } header: {
+                Text("Media controls")
+            } footer: {
                 Text("Customize which controls appear in the music player. Volume expands when active.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

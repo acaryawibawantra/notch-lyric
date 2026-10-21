@@ -118,6 +118,9 @@ struct MusicControlsView: View {
     @State private var lastDragged: Date = .distantPast
     @Default(.musicControlSlots) private var slotConfig
     @Default(.musicControlSlotLimit) private var slotLimit
+    @Default(.lyricAlignment) private var lyricAlignment
+    @Default(.lyricTextSize) private var lyricTextSize
+    @Default(.animateLyricTransitions) private var animateLyricTransitions
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -173,28 +176,32 @@ struct MusicControlsView: View {
                !musicManager.isFetchingLyrics,
                !musicManager.syncedLyrics.isEmpty {
                 let context = musicManager.lyricContext(at: currentElapsed)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: lyricAlignment == .leading ? .leading : .center, spacing: 2) {
                     if let previous = context.previous {
                         Text(previous)
-                            .font(.caption2)
+                            .font(lyricTextSize.surroundingFont)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     Text(context.current)
-                        .font(.subheadline.weight(.semibold))
+                        .font(lyricTextSize.activeFont)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .contentTransition(.opacity)
                     if let next = context.next {
                         Text(next)
-                            .font(.caption2)
+                            .font(lyricTextSize.surroundingFont)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                 }
-                .frame(maxWidth: width, alignment: .leading)
+                .multilineTextAlignment(lyricAlignment.textAlignment)
+                .frame(maxWidth: width, alignment: lyricAlignment.frameAlignment)
                 .opacity(musicManager.isPlaying ? 1 : 0)
-                .animation(.easeInOut(duration: 0.2), value: context.current)
+                .animation(
+                    animateLyricTransitions ? .easeInOut(duration: 0.2) : nil,
+                    value: context.current
+                )
             } else {
                 let line: String = {
                     if musicManager.isFetchingLyrics { return "Loading lyrics…" }
