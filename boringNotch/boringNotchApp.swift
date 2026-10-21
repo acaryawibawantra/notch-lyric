@@ -351,6 +351,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
         }
 
+        KeyboardShortcuts.onKeyDown(for: .togglePersistentLyrics) {
+            Defaults[.persistentNotchLyrics].toggle()
+        }
+        KeyboardShortcuts.onKeyDown(for: .clipboardHistoryPanel) {
+            Task { @MainActor in ClipboardPanelController.shared.toggle() }
+        }
+        KeyboardShortcuts.onKeyDown(for: .openFocusSession) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                UserDefaults.standard.set("Focus", forKey: "notchLyric.toolsSection")
+                self.coordinator.currentView = .focus
+                self.vm.open()
+            }
+        }
+        KeyboardShortcuts.onKeyDown(for: .toggleFocusSession) {
+            Task { @MainActor in
+                let timer = FocusTimerModel.shared
+                if timer.isRunning { timer.pause() } else { timer.start() }
+            }
+        }
         KeyboardShortcuts.onKeyDown(for: .toggleSneakPeek) { [weak self] in
             guard let self = self else { return }
             if Defaults[.sneakPeekStyles] == .inline {

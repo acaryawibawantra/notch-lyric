@@ -96,6 +96,23 @@ final class XPCHelperClient: NSObject {
     }
     
     // MARK: - Accessibility
+    nonisolated func postEventAccess(prompt: Bool = false) async -> Bool {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.postEventAccess(prompt) { allowed in continuation.resume(returning: allowed) }
+            }
+        } catch { return false }
+    }
+
+    nonisolated func pasteIntoApplication(_ pid: Int32) async -> Bool {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.pasteIntoApplication(pid) { success in continuation.resume(returning: success) }
+            }
+        } catch { return false }
+    }
     
     nonisolated func requestAccessibilityAuthorization() {
         Task {

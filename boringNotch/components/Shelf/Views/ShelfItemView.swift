@@ -56,6 +56,13 @@ struct ShelfItemView: View {
                         viewModel.handleClick(event: event, view: nsview)
                     }
                 )
+                if item.isPinned {
+                    Image(systemName: "pin.fill").font(.system(size: 9))
+                        .foregroundStyle(.white).padding(5)
+                        .background(.black.opacity(0.65), in: Circle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .allowsHitTesting(false).accessibilityLabel("Pinned")
+                }
             } else {
                 Color.clear
                     .frame(width: 105)
@@ -89,7 +96,6 @@ struct ShelfItemView: View {
                 cachedPreviewImage = await renderDragPreview()
             }
         }
-        .quickLookPresenter(using: quickLookService)
     }
 
     // MARK: - View Components
@@ -358,7 +364,8 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
             // Auto-remove items from shelf if enabled and drag succeeded
             if Defaults[.autoRemoveShelfItems] && !operation.isEmpty {
                 for item in draggedItems {
-                    ShelfStateViewModel.shared.remove(item)
+                    let current = ShelfStateViewModel.shared.items.first { $0.id == item.id }
+                    if current?.isPinned != true { ShelfStateViewModel.shared.remove(item) }
                 }
             }
             draggedItems.removeAll()

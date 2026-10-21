@@ -1,0 +1,36 @@
+@MainActor
+func runShelfChecks() throws {
+    let note = ShelfItem(kind: .text(string: "Draft"))
+    let link = ShelfItem(kind: .link(url: URL(string: "https://example.com")!))
+    var file = ShelfItem(kind: .file(bookmark: Data([1, 2, 3])))
+    let legacy = try JSONEncoder().encode(note)
+    precondition(!String(decoding: legacy, as: UTF8.self).contains("pinned"))
+    let restored = try JSONDecoder().decode(ShelfItem.self, from: legacy)
+    precondition(restored.id == note.id && !restored.isPinned)
+    file.pinned = true
+    let saved = try JSONEncoder().encode(file)
+    let restoredPin = try JSONDecoder().decode(ShelfItem.self, from: saved)
+    precondition(restoredPin.isPinned)
+    precondition(ShelfFilter.files.includes(file) && !ShelfFilter.files.includes(note))
+    precondition(ShelfFilter.links.includes(link) && ShelfFilter.notes.includes(note))
+    precondition(ShelfFilter.pinned.includes(file) && !ShelfFilter.pinned.includes(link))
+
+    let all = [note, link, file]
+    let selection = ShelfSelectionModel()
+    selection.setVisibleItems([note, file])
+    selection.selectSingle(note)
+    selection.shiftSelect(to: file, in: all)
+    precondition(selection.selectedIDs == Set([note.id, file.id]))
+    selection.setVisibleItems([file, note, link])
+    selection.selectSingle(file)
+    selection.shiftSelect(to: note, in: all)
+    precondition(selection.selectedIDs == Set([file.id, note.id])) // Visual pin order, not original order.
+    selection.setVisibleItems([file])
+    precondition(selection.selectedIDs == [file.id])
+    selection.selectAll([link, file])
+    precondition(selection.selectedItems(in: all).map(\.id) == [link.id, file.id])
+    selection.ensureValidAnchor(in: [note])
+    precondition(selection.selectedIDs.isEmpty)
+    print("PASS: legacy shelf decoding, pin persistence, kind filters, visible-only range selection, stale selection cleanup")
+}
+try MainActor.assumeIsolated { try runShelfChecks() }

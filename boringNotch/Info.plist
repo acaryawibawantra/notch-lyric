@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Display events from your Mac calendars in the notch.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Display and complete reminders from your Mac's reminder lists.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

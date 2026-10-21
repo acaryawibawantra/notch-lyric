@@ -11,6 +11,45 @@ import Foundation
 /// A service providing common actions for `ShelfItem`s, such as opening, revealing, or copying paths.
 @MainActor
 enum ShelfActionService {
+    private static var copiedAccess: [URL] = []
+    private static var copyMonitor: Task<Void, Never>?
+
+    /// Keeps file access alive until another clipboard write replaces this copy.
+    static func copyItems(_ items: [ShelfItem]) -> Int {
+        copyMonitor?.cancel()
+        releaseCopiedAccess()
+        var writers: [NSPasteboardWriting] = []
+        for item in items {
+            switch item.kind {
+            case .file:
+                if let url = item.fileURL {
+                    if url.startAccessingSecurityScopedResource() { copiedAccess.append(url) }
+                    writers.append(url as NSURL)
+                }
+            case .text(let text): writers.append(text as NSString)
+            case .link(let url): writers.append(url as NSURL)
+            }
+        }
+        guard !writers.isEmpty else { return 0 }
+        let board = NSPasteboard.general
+        board.clearContents()
+        guard board.writeObjects(writers) else { releaseCopiedAccess(); return 0 }
+        let marker = board.changeCount
+        if !copiedAccess.isEmpty {
+            copyMonitor = Task { @MainActor in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    if board.changeCount != marker { releaseCopiedAccess(); return }
+                }
+            }
+        }
+        return writers.count
+    }
+
+    private static func releaseCopiedAccess() {
+        for url in copiedAccess { url.stopAccessingSecurityScopedResource() }
+        copiedAccess.removeAll()
+    }
 
     static func open(_ item: ShelfItem) {
         switch item.kind {

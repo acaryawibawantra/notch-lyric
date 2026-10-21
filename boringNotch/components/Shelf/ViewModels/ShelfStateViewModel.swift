@@ -48,6 +48,12 @@ final class ShelfStateViewModel: ObservableObject {
         items.removeAll { $0.id == item.id }
     }
 
+    func setPinned(_ pinned: Bool, ids: Set<UUID>) {
+        var updated = items
+        for index in updated.indices where ids.contains(updated[index].id) { updated[index].pinned = pinned }
+        items = updated
+    }
+
     func updateBookmark(for item: ShelfItem, bookmark: Data) {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         if case .file = items[idx].kind {
@@ -92,21 +98,23 @@ final class ShelfStateViewModel: ObservableObject {
     func cleanupInvalidItems() {
         Task { [weak self] in
             guard let self else { return }
-            var keep: [ShelfItem] = []
+            var invalid: [UUID: ShelfItemKind] = [:]
             for item in self.items {
+                // Preserve pins when a removable drive is temporarily unavailable.
+                if item.isPinned { continue }
                 switch item.kind {
                 case .file(let data):
                     let bookmark = Bookmark(data: data)
-                    if await bookmark.validate() {
-                        keep.append(item)
-                    } else {
-                        item.cleanupStoredData()
-                    }
+                    if !(await bookmark.validate()) { invalid[item.id] = item.kind }
                 default:
-                    keep.append(item)
+                    break
                 }
             }
-            await MainActor.run { self.items = keep }
+            // Do not overwrite items added or refreshed while validation awaited.
+            let removed = self.items.filter { !$0.isPinned && invalid[$0.id] == $0.kind }
+            let removedIDs = Set(removed.map(\.id))
+            self.items.removeAll { removedIDs.contains($0.id) }
+            for item in removed { item.cleanupStoredData() }
         }
     }
 

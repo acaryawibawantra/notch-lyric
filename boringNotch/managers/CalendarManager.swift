@@ -10,6 +10,12 @@ import EventKit
 import SwiftUI
 
 // MARK: - CalendarManager
+struct NativeReminderItem: Identifiable {
+    let id: String
+    let title: String
+    let list: String
+    let due: Date?
+}
 
 @MainActor
 class CalendarManager: ObservableObject {
@@ -17,6 +23,8 @@ class CalendarManager: ObservableObject {
 
     @Published var currentWeekStartDate: Date
     @Published var events: [EventModel] = []
+    @Published var nativeReminders: [NativeReminderItem] = []
+    @Published var syncError: String?
     @Published var allCalendars: [CalendarModel] = []
     @Published var eventCalendars: [CalendarModel] = []
     @Published var reminderLists: [CalendarModel] = []
@@ -56,11 +64,14 @@ class CalendarManager: ObservableObject {
 
     @MainActor
     func reloadCalendarAndReminderLists() async {
+        calendarAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
+        reminderAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
         let all = await calendarService.calendars()
         self.eventCalendars = all.filter { !$0.isReminder }
         self.reminderLists = all.filter { $0.isReminder }
         self.allCalendars = all // for legacy compatibility, can be removed if not needed
         updateSelectedCalendars()
+        await updateEvents()
     }
 
     func checkCalendarAuthorization() async {
@@ -191,6 +202,7 @@ class CalendarManager: ObservableObject {
             calendars: calendarIDs
         )
         self.events = eventsResult
+        self.nativeReminders = await calendarService.incompleteReminders(calendars: calendarIDs)
     }
     
     func setReminderCompleted(reminderID: String, completed: Bool) async {
@@ -200,5 +212,15 @@ class CalendarManager: ObservableObject {
             from: currentWeekStartDate,
             to: Calendar.current.date(byAdding: .day, value: 1, to: currentWeekStartDate)!,
             calendars: selectedCalendars.map { $0.id })
+    }
+
+    @discardableResult
+    func completeNativeReminder(_ id: String) async -> Bool {
+        do {
+            try await calendarService.completeNativeReminder(id)
+            syncError = nil
+            await updateEvents()
+            return true
+        } catch { syncError = error.localizedDescription; return false }
     }
 }

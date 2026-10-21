@@ -66,6 +66,44 @@ enum LyricDisplayMode: String, CaseIterable, Identifiable, Defaults.Serializable
     var id: String { self.rawValue }
 }
 
+enum CompactActivity: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case automatic = "Automatic"
+    case music = "Music"
+    case focus = "Focus timer"
+
+    var id: String { rawValue }
+}
+
+enum FloatingLyricStyle: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case transparent = "Transparent"
+    case black = "Black background"
+
+    var id: String { rawValue }
+}
+
+enum ToolsAccent: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case system = "System"
+    case blue = "Blue"
+    case purple = "Purple"
+    case orange = "Orange"
+    case mint = "Mint"
+    case pink = "Pink"
+    case custom = "Custom"
+    var id: String { rawValue }
+
+    var color: Color {
+        switch self {
+        case .system: .accentColor
+        case .blue: .blue
+        case .purple: .purple
+        case .orange: .orange
+        case .mint: .mint
+        case .pink: .pink
+        case .custom: Color(red: Defaults[.toolsRed], green: Defaults[.toolsGreen], blue: Defaults[.toolsBlue])
+        }
+    }
+}
+
 enum LyricAlignment: String, CaseIterable, Identifiable, Defaults.Serializable {
     case leading = "Left"
     case center = "Center"
@@ -174,7 +212,18 @@ extension Defaults.Keys {
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     static let showShuffleAndRepeat = Key<Bool>("showShuffleAndRepeat", default: false)
     static let enableLyrics = Key<Bool>("enableLyrics", default: false)
-    static let lyricDisplayMode = Key<LyricDisplayMode>("lyricDisplayMode", default: .compact)
+    static let persistentNotchLyrics = Key<Bool>("persistentNotchLyrics", default: true)
+    static let persistentNotchLyricLines = Key<Int>("persistentNotchLyricLines", default: 1)
+    static let floatingLyricStyle = Key<FloatingLyricStyle>("floatingLyricStyle", default: .transparent)
+    static let floatingLyricsAmbient = Key<Bool>("floatingLyricsAmbient", default: true)
+    static let lyricGradientIntensity = Key<Double>("lyricGradientIntensity", default: 0.55)
+    static let lyricGradientDepth = Key<Double>("lyricGradientDepth", default: 64)
+    static let compactActivity = Key<CompactActivity>("compactActivity", default: .automatic)
+    static let toolsAccent = Key<ToolsAccent>("toolsAccent", default: .system)
+    static let toolsRed = Key<Double>("toolsRed", default: 0.3)
+    static let toolsGreen = Key<Double>("toolsGreen", default: 0.5)
+    static let toolsBlue = Key<Double>("toolsBlue", default: 1)
+    static let lyricDisplayMode = Key<LyricDisplayMode>("lyricDisplayMode", default: .karaoke)
     static let lyricAlignment = Key<LyricAlignment>("lyricAlignment", default: .leading)
     static let lyricTextSize = Key<LyricTextSize>("lyricTextSize", default: .medium)
     static let animateLyricTransitions = Key<Bool>("animateLyricTransitions", default: true)

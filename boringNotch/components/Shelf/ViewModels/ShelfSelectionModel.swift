@@ -18,6 +18,22 @@ final class ShelfSelectionModel: ObservableObject {
     static let shared = ShelfSelectionModel()
 
     @Published private(set) var selectedIDs: Set<UUID> = []
+    @Published var isEditingSearch = false
+    @Published var isPreviewing = false
+    private var visibleIDs: Set<UUID>?
+    private var visibleOrder: [UUID]?
+
+    func setVisibleItems(_ items: [ShelfItem]?) {
+        visibleIDs = items.map { Set($0.map(\.id)) }
+        visibleOrder = items?.map(\.id)
+        if let visibleIDs { selectedIDs.formIntersection(visibleIDs) }
+        ensureValidAnchor(in: items ?? [])
+    }
+
+    func selectAll(_ items: [ShelfItem]) {
+        selectedIDs = Set(items.map(\.id))
+        lastAnchorID = items.first?.id
+    }
 
     // Anchor for shift-range selection
     private var lastAnchorID: UUID? = nil
@@ -50,6 +66,8 @@ final class ShelfSelectionModel: ObservableObject {
     }
 
     func shiftSelect(to item: ShelfItem, in allItems: [ShelfItem]) {
+        let byID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
+        let allItems = visibleOrder.map { $0.compactMap { byID[$0] } } ?? allItems
         // Determine anchor
         let anchorID = lastAnchorID ?? selectedIDs.first ?? item.id
         guard let startIndex = allItems.firstIndex(where: { $0.id == anchorID }),
@@ -70,6 +88,7 @@ final class ShelfSelectionModel: ObservableObject {
 
     // Keep anchor sane if items array changed drastically (optional helper)
     func ensureValidAnchor(in allItems: [ShelfItem]) {
+        selectedIDs.formIntersection(Set(allItems.map(\.id)))
         if let anchor = lastAnchorID, !allItems.contains(where: { $0.id == anchor }) {
             lastAnchorID = selectedIDs.first
         }

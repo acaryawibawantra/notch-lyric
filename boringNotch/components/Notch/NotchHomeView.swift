@@ -121,6 +121,8 @@ struct MusicControlsView: View {
     @Default(.lyricAlignment) private var lyricAlignment
     @Default(.lyricTextSize) private var lyricTextSize
     @Default(.animateLyricTransitions) private var animateLyricTransitions
+    @Default(.lyricDisplayMode) private var lyricDisplayMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -143,9 +145,23 @@ struct MusicControlsView: View {
 
     private func songInfo(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            MarqueeText(
-                $musicManager.songTitle, font: .headline, nsFont: .headline, textColor: .white,
-                frameWidth: width)
+            HStack(spacing: 6) {
+                MarqueeText(
+                    $musicManager.songTitle, font: .headline, nsFont: .headline, textColor: .white,
+                    frameWidth: max(0, width - (Defaults[.enableLyrics] ? 30 : 0)))
+                if Defaults[.enableLyrics] {
+                    Button {
+                        lyricDisplayMode = lyricDisplayMode == .karaoke ? .compact : .karaoke
+                    } label: {
+                        Image(systemName: lyricDisplayMode == .karaoke ? "text.bubble.fill" : "text.bubble")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 20)
+                    }
+                    .help(lyricDisplayMode == .karaoke ? "Switch to compact lyrics" : "Show detailed lyrics")
+                    .accessibilityLabel("Toggle detailed lyrics")
+                }
+            }
             MarqueeText(
                 $musicManager.artistName,
                 font: .headline,
@@ -172,34 +188,30 @@ struct MusicControlsView: View {
                 return min(max(progressed, 0), musicManager.songDuration)
             }()
 
-            if Defaults[.lyricDisplayMode] == .karaoke,
+            if lyricDisplayMode == .karaoke,
                !musicManager.isFetchingLyrics,
                !musicManager.syncedLyrics.isEmpty {
                 let context = musicManager.lyricContext(at: currentElapsed)
                 VStack(alignment: lyricAlignment == .leading ? .leading : .center, spacing: 2) {
-                    if let previous = context.previous {
-                        Text(previous)
-                            .font(lyricTextSize.surroundingFont)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(context.previous ?? " ")
+                        .font(lyricTextSize.surroundingFont)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     Text(context.current)
                         .font(lyricTextSize.activeFont)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .contentTransition(.opacity)
-                    if let next = context.next {
-                        Text(next)
-                            .font(lyricTextSize.surroundingFont)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(context.next ?? " ")
+                        .font(lyricTextSize.surroundingFont)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 .multilineTextAlignment(lyricAlignment.textAlignment)
                 .frame(maxWidth: width, alignment: lyricAlignment.frameAlignment)
-                .opacity(musicManager.isPlaying ? 1 : 0)
+                .opacity(musicManager.isPlaying ? 1 : 0.65)
                 .animation(
-                    animateLyricTransitions ? .easeInOut(duration: 0.2) : nil,
+                    animateLyricTransitions && !reduceMotion ? .easeInOut(duration: 0.2) : nil,
                     value: context.current
                 )
             } else {

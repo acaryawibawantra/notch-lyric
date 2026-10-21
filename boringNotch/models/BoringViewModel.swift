@@ -190,7 +190,7 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = openNotchSize
+        self.notchSize = expandedPanelSize(for: coordinator.currentView)
         self.notchState = .open
         
         // Force music information update when notch is opened
@@ -198,6 +198,8 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func close() {
+        guard !FocusTimerModel.shared.isEditingGoal, !FocusTaskStore.shared.isEditing, !ClipboardHistoryStore.shared.isEditing,
+              !ShelfSelectionModel.shared.isEditingSearch, !ShelfSelectionModel.shared.isPreviewing else { return }
         // Do not close while a share picker or sharing service is active
         if SharingStateManager.shared.preventNotchClose {
             return
@@ -205,6 +207,7 @@ class BoringViewModel: NSObject, ObservableObject {
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
         self.closedNotchSize = self.notchSize
         self.notchState = .closed
+        if let panel = NSApp.keyWindow as? BoringNotchSkyLightWindow { panel.resignKey() }
         self.isBatteryPopoverActive = false
         self.coordinator.sneakPeek.show = false
         self.edgeAutoOpenActive = false

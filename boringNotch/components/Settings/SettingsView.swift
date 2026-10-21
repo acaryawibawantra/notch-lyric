@@ -36,6 +36,12 @@ struct SettingsView: View {
                 NavigationLink(value: "Media") {
                     Label("Media", systemImage: "play.laptopcomputer")
                 }
+                NavigationLink(value: "Focus") {
+                    Label("Focus Timer", systemImage: "timer")
+                }
+                NavigationLink(value: "Everyday") {
+                    Label("Everyday tools", systemImage: "square.grid.2x2")
+                }
                 NavigationLink(value: "Calendar") {
                     Label("Calendar", systemImage: "calendar")
                 }
@@ -77,8 +83,19 @@ struct SettingsView: View {
                     Appearance()
                 case "Media":
                     Media()
+                case "Focus":
+                    Form {
+                        Section("Focus session") {
+                            Text("Start and manage sessions from the Time tools tab in the notch. Use this page to customize your defaults, colors, and break preferences.")
+                                .foregroundStyle(.secondary)
+                        }
+                        FocusSessionPreferences()
+                    }
+                    .navigationTitle("Focus Timer")
                 case "Calendar":
                     CalendarSettings()
+                case "Everyday":
+                    EverydayToolsSettings()
                 case "HUD":
                     HUD()
                 case "Battery":
@@ -601,6 +618,12 @@ struct Media: View {
 
     @Default(.enableLyrics) var enableLyrics
     @Default(.lyricDisplayMode) var lyricDisplayMode
+    @Default(.persistentNotchLyricLines) var persistentNotchLyricLines
+    @Default(.compactActivity) private var compactActivity
+    @Default(.floatingLyricStyle) private var floatingLyricStyle
+    @Default(.floatingLyricsAmbient) private var floatingLyricsAmbient
+    @Default(.lyricGradientIntensity) private var lyricGradientIntensity
+    @Default(.lyricGradientDepth) private var lyricGradientDepth
     @Default(.lyricAlignment) var lyricAlignment
     @Default(.lyricTextSize) var lyricTextSize
     @Default(.animateLyricTransitions) var animateLyricTransitions
@@ -689,7 +712,39 @@ struct Media: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 12) {
-                    Picker("Display mode", selection: $lyricDisplayMode) {
+                    Defaults.Toggle("Show lyrics without hovering", key: .persistentNotchLyrics)
+                    Picker("Lyrics background", selection: $floatingLyricStyle) {
+                        ForEach(FloatingLyricStyle.allCases) { style in
+                            Text(style.rawValue).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Defaults.Toggle("Album-color ambient glow", key: .floatingLyricsAmbient)
+                        .disabled(floatingLyricStyle == .black)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Gradient intensity")
+                            Spacer()
+                            Text("\(Int(lyricGradientIntensity * 100))%")
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        Slider(value: $lyricGradientIntensity, in: 0...1, step: 0.05)
+                            .accessibilityLabel("Gradient intensity")
+                        HStack {
+                            Text("Gradient depth")
+                            Spacer()
+                            Text("\(Int(lyricGradientDepth)) pt")
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        Slider(value: $lyricGradientDepth, in: 36...84, step: 4)
+                            .accessibilityLabel("Gradient depth")
+                    }
+                    .disabled(floatingLyricStyle == .black || !floatingLyricsAmbient)
+                    Picker("Lines below the notch", selection: $persistentNotchLyricLines) {
+                        Text("1 line").tag(1)
+                        Text("2 lines").tag(2)
+                    }
+                    Picker("Expanded player lyrics", selection: $lyricDisplayMode) {
                         ForEach(LyricDisplayMode.allCases) { mode in
                             Text(mode.rawValue).tag(mode)
                         }
@@ -716,7 +771,18 @@ struct Media: View {
             } header: {
                 Text("Lyrics")
             }  footer: {
-                Text("Karaoke shows the previous, current, and next synced lyric lines.")
+                Text("Floating lyrics appear below the notch without blocking clicks. Display mode controls lyrics inside the expanded player.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Compact notch") {
+                Picker("Primary activity", selection: $compactActivity) {
+                    ForEach(CompactActivity.allCases) { activity in
+                        Text(activity.rawValue).tag(activity)
+                    }
+                }
+                Text("Automatic shows music and the clock together when both are active. Choose Music or Focus timer for a single activity. Click either activity to open its controls.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1777,6 +1843,14 @@ struct Shortcuts: View {
             }
             Section {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
+            }
+            Section("Lyrics and focus") {
+                KeyboardShortcuts.Recorder("Show/hide notch lyrics:", name: .togglePersistentLyrics)
+                KeyboardShortcuts.Recorder("Open Focus tab:", name: .openFocusSession)
+                KeyboardShortcuts.Recorder("Start/pause focus session:", name: .toggleFocusSession)
+            }
+            Section("Everyday tools") {
+                KeyboardShortcuts.Recorder("Show/hide clipboard search:", name: .clipboardHistoryPanel)
             }
         }
         .accentColor(.effectiveAccent)

@@ -53,6 +53,9 @@ struct ShelfItem: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var kind: ShelfItemKind
     var isTemporary: Bool
+    // Optional keeps shelves saved by older versions decodable.
+    var pinned: Bool? = nil
+    var isPinned: Bool { pinned == true }
     init(id: UUID = UUID(), kind: ShelfItemKind, isTemporary: Bool = false) {
         self.id = id
         self.kind = kind
@@ -63,7 +66,7 @@ struct ShelfItem: Identifiable, Codable, Equatable, Sendable {
         switch kind {
         case .file(let bookmarkData):
             let bookmark = Bookmark(data: bookmarkData)
-            guard let resolvedURL = bookmark.resolveURL() else { return "" }
+            guard let resolvedURL = bookmark.resolveURL() else { return "Unavailable file" }
             
             // Check for stored data files (text blocks, weblocs, etc.) to provide friendly names
             if resolvedURL.pathExtension.lowercased() == "json" && resolvedURL.path.contains("TextBlocks") {

@@ -9,9 +9,33 @@ import Foundation
 import ApplicationServices
 import IOKit
 import CoreGraphics
+import AppKit
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
+    @objc func pasteIntoApplication(_ pid: Int32, with reply: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async {
+            guard CGPreflightPostEventAccess(), pid > 0,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                  let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else {
+                reply(false)
+                return
+            }
+            down.flags = .maskCommand
+            up.flags = .maskCommand
+            down.postToPid(pid)
+            up.postToPid(pid)
+            reply(true)
+        }
+    }
     
+    @objc func postEventAccess(_ prompt: Bool, with reply: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async {
+            if CGPreflightPostEventAccess() { reply(true) }
+            else { reply(prompt ? CGRequestPostEventAccess() : false) }
+        }
+    }
+
     @objc func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void) {
         reply(AXIsProcessTrusted())
     }

@@ -107,6 +107,31 @@ class CalendarService: CalendarServiceProviding {
         }
     }
     
+    func incompleteReminders(calendars ids: [String]) async -> [NativeReminderItem] {
+        guard hasAccess(to: .reminder) else { return [] }
+        let lists = store.calendars(for: .reminder).filter { ids.contains($0.calendarIdentifier) }
+        guard !lists.isEmpty else { return [] }
+        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: lists)
+        return await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { reminders in
+                let items = (reminders ?? []).map { reminder in
+                    NativeReminderItem(id: reminder.calendarItemIdentifier, title: reminder.title ?? "Reminder",
+                                       list: reminder.calendar.title,
+                                       due: reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) })
+                }.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
+                continuation.resume(returning: Array(items.prefix(100)))
+            }
+        }
+    }
+
+    func completeNativeReminder(_ id: String) async throws {
+        guard hasAccess(to: .reminder), let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
+            throw NSError(domain: "NotchLyric.Reminders", code: 1, userInfo: [NSLocalizedDescriptionKey: "Reminder access is unavailable. Check macOS Privacy & Security settings."])
+        }
+        reminder.isCompleted = true
+        try store.save(reminder, commit: true)
+    }
+
     func setReminderCompleted(reminderID: String, completed: Bool) async {
         guard let reminder = store.calendarItem(withIdentifier: reminderID) as? EKReminder else { return }
         reminder.isCompleted = completed

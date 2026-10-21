@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DE20261021000000000001 /* EverydayTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE20261021000000000002 /* EverydayTools.swift */; };
 		1100290C2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100290B2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift */; };
 		110029272E84FD4C00035A57 /* TemporaryFileStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110029262E84FD4C00035A57 /* TemporaryFileStorageService.swift */; };
 		1100292A2E8691B400035A57 /* FileShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110029292E8691B400035A57 /* FileShareView.swift */; };
@@ -181,6 +182,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C0DE20261021000000000002 /* EverydayTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EverydayTools.swift; sourceTree = "<group>"; };
 		1100290B2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSItemProvider+LoadHelpers.swift"; sourceTree = "<group>"; };
 		110029262E84FD4C00035A57 /* TemporaryFileStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryFileStorageService.swift; sourceTree = "<group>"; };
 		110029292E8691B400035A57 /* FileShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileShareView.swift; sourceTree = "<group>"; };
@@ -576,6 +578,7 @@
 				1471639B2C5D362F0068B555 /* components */,
 				14CEF4152C5CAED300855D72 /* boringNotchApp.swift */,
 				14CEF4172C5CAED300855D72 /* ContentView.swift */,
+				C0DE20261021000000000002 /* EverydayTools.swift */,
 				B17266E02C6532560031BA0D /* Localizable.xcstrings */,
 				14CEF4192C5CAED400855D72 /* Assets.xcassets */,
 				14A7E5962C65FD31008C1BE9 /* boring.m4a */,
@@ -986,6 +989,7 @@
 				507266DB2C908E2E00A2D00D /* HoverButton.swift in Sources */,
 				1471A8592C6281BD0058408D /* BoringNotchWindow.swift in Sources */,
 				14CEF4182C5CAED300855D72 /* ContentView.swift in Sources */,
+				C0DE20261021000000000001 /* EverydayTools.swift in Sources */,
 				9A987A0D2C73CA66005CA465 /* ShelfView.swift in Sources */,
 				1132E5142E777B920068732D /* YouTubeMusicNetworking.swift in Sources */,
 				1132E5122E777B6E0068732D /* YouTubeMusicModels.swift in Sources */,

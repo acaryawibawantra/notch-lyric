@@ -14,7 +14,17 @@ let batterySneakSize: CGSize = .init(width: 160, height: 1)
 
 let shadowPadding: CGFloat = 20
 let openNotchSize: CGSize = .init(width: 640, height: 190)
-let windowSize: CGSize = .init(width: openNotchSize.width, height: openNotchSize.height + shadowPadding)
+let timeToolsSize: CGSize = .init(width: 720, height: 310)
+let windowSize: CGSize = .init(width: max(timeToolsSize.width, openNotchSize.width), height: timeToolsSize.height + shadowPadding)
+
+func expandedPanelSize(for view: NotchViews) -> CGSize {
+    switch view {
+    case .focus: timeToolsSize
+    case .shelf: CGSize(width: timeToolsSize.width, height: 300)
+    case .everyday: CGSize(width: openNotchSize.width, height: 300)
+    default: openNotchSize
+    }
+}
 let cornerRadiusInsets: (opened: (top: CGFloat, bottom: CGFloat), closed: (top: CGFloat, bottom: CGFloat)) = (opened: (top: 19, bottom: 24), closed: (top: 6, bottom: 14))
 
 enum MusicPlayerImageSizes {
