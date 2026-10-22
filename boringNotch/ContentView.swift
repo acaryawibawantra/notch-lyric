@@ -53,9 +53,11 @@ private struct FloatingLyricsPanel<Content: View>: NSViewRepresentable {
     let topInset: CGFloat
     let width: CGFloat
     let content: Content
+    let contrastSampler: LyricContrastSampler
+    let adaptiveContrast: Bool
 
     func makeNSView(context: Context) -> LyricsPanelAnchor<Content> {
-        LyricsPanelAnchor(content: content)
+        LyricsPanelAnchor(content: content, contrastSampler: contrastSampler)
     }
 
     func updateNSView(_ view: LyricsPanelAnchor<Content>, context: Context) {
@@ -63,6 +65,7 @@ private struct FloatingLyricsPanel<Content: View>: NSViewRepresentable {
         view.topInset = topInset
         view.panelWidth = width
         view.shouldShow = isVisible
+        view.adaptiveContrast = adaptiveContrast
         view.updatePanel()
     }
 
@@ -77,8 +80,11 @@ private final class LyricsPanelAnchor<Content: View>: NSView {
     var topInset: CGFloat = 0
     var panelWidth: CGFloat = 520
     var shouldShow = false
+    var adaptiveContrast = false
+    private let contrastSampler: LyricContrastSampler
 
-    init(content: Content) {
+    init(content: Content, contrastSampler: LyricContrastSampler) {
+        self.contrastSampler = contrastSampler
         host = NSHostingView(rootView: content)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 100),
@@ -107,6 +113,7 @@ private final class LyricsPanelAnchor<Content: View>: NSView {
 
     func updatePanel() {
         guard shouldShow, let window else {
+            contrastSampler.stop()
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
             return
@@ -136,9 +143,13 @@ private final class LyricsPanelAnchor<Content: View>: NSView {
             x: window.frame.midX - panel.frame.width / 2,
             y: window.frame.maxY - topInset - panel.frame.height
         ))
+        let sampleArea = NSRect(x: panel.frame.minX + panel.frame.width * 0.15,
+                                y: panel.frame.maxY - 64, width: panel.frame.width * 0.7, height: 48)
+        contrastSampler.configure(enabled: adaptiveContrast, screen: window.screen, area: sampleArea)
     }
 
     func dispose() {
+        contrastSampler.stop()
         NotificationCenter.default.removeObserver(self)
         panel.parent?.removeChildWindow(panel)
         panel.close()
@@ -961,6 +972,13 @@ struct ContentView: View {
     @Default(.calendarAgendaPopups) private var calendarAgendaPopups
     @State private var agendaOwner = UUID()
     @ObservedObject private var calls = CallActivityStore.shared
+    @ObservedObject private var codingTasks = MorisTaskStore.shared
+    @State private var prompterPresented = PrompterModel.shared.isPresented
+    @State private var prompterScreenID = PrompterModel.shared.presentationScreenID
+
+    private var showsPrompterReading: Bool {
+        prompterPresented && prompterScreenID == vm.screenUUID
+    }
     @Default(.experimentalCallDetection) private var experimentalCallDetection
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
@@ -993,6 +1011,8 @@ struct ContentView: View {
     @Default(.animateLyricTransitions) private var animateLyricTransitions
     @Default(.floatingLyricStyle) private var floatingLyricStyle
     @Default(.floatingLyricsAmbient) private var floatingLyricsAmbient
+    @Default(.adaptiveLyricContrast) private var adaptiveLyricContrast
+    @StateObject private var lyricContrast = LyricContrastSampler()
     @Default(.lyricGradientIntensity) private var lyricGradientIntensity
     @Default(.lyricGradientDepth) private var lyricGradientDepth
     @Default(.compactActivity) private var compactActivity
@@ -1010,8 +1030,16 @@ struct ContentView: View {
     }
 
     private var floatingLyricsVisible: Bool {
-        showsPersistentLyrics && vm.notchState == .closed && !coordinator.helloAnimationRunning
-            && !coordinator.sneakPeek.show && !coordinator.expandingView.show && !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup
+        showsPersistentLyrics && !prompterPresented && vm.notchState == .closed && !coordinator.helloAnimationRunning
+            && !coordinator.sneakPeek.show && !coordinator.expandingView.show && !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup && !showsTaskPopup
+    }
+
+    private var showsTaskPopup: Bool {
+        codingTasks.notice != nil && !codingTasks.isConfiguring && wellnessSessionUnlocked && !vm.hideOnClosed && vm.notchState == .closed
+            && !coordinator.firstLaunch && !coordinator.helloAnimationRunning && !coordinator.expandingView.show
+            && !coordinator.sneakPeek.show && !showsCallPopup && !showsAgendaPopup && !showsWellnessBanner && !showsDevicePopup
+            && !vm.anyDropZoneTargeting && !shelfSelection.isDragging && !shelfSelection.isPreviewing
+            && !ShelfStateViewModel.shared.isLoading && !wellnessSharingState.preventNotchClose
     }
 
     private var showsCallPopup: Bool {
@@ -1236,8 +1264,29 @@ struct ContentView: View {
                         .frame(width: computedChinWidth, height: vm.chinHeight)
                 }
             }
-            .opacity(showsWellnessBanner || showsDevicePopup || showsAgendaPopup || showsCallPopup ? 0 : 1)
-            .allowsHitTesting(!showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup)
+            .opacity(showsTaskPopup || showsPrompterReading || showsWellnessBanner || showsDevicePopup || showsAgendaPopup || showsCallPopup ? 0 : 1)
+            .allowsHitTesting(!showsTaskPopup && !showsPrompterReading && !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup)
+            if showsTaskPopup, let notice = codingTasks.notice {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+                    MorisTaskPopup(notice: notice).padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 22)
+                }
+                .frame(width: 480).background(.black)
+                .clipShape(NotchShape(topCornerRadius: 19, bottomCornerRadius: 24))
+                .transition(.opacity).zIndex(7)
+            }
+            if showsPrompterReading {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+                    PrompterReadingPanel()
+                }
+                .frame(width: PrompterPanelController.readingSize.width, height: PrompterPanelController.readingSize.height)
+                .background(.black)
+                .clipShape(NotchShape(topCornerRadius: 19, bottomCornerRadius: 24))
+                .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+                .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.97, anchor: .top)))
+                .zIndex(8)
+            }
             if showsCallPopup, let call = calls.activity {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
@@ -1318,6 +1367,7 @@ struct ContentView: View {
         )
         .animation(.smooth, value: gestureProgress)
         .background(dragDetector)
+        .background(PrompterNotchAnchor(viewModel: vm))
         .background {
             FloatingLyricsPanel(
                 isVisible: floatingLyricsVisible && floatingLyricStyle == .transparent,
@@ -1325,11 +1375,23 @@ struct ContentView: View {
                 width: floatingPanelWidth,
                 content: persistentLyricsView
                     .preferredColorScheme(.dark)
-                    .frame(width: floatingPanelWidth, height: 100, alignment: .top)
+                    .frame(width: floatingPanelWidth, height: 100, alignment: .top),
+                contrastSampler: lyricContrast,
+                adaptiveContrast: adaptiveLyricContrast && !reduceTransparency && wellnessSessionUnlocked
             )
         }
         .preferredColorScheme(.dark)
         .environmentObject(vm)
+        .onReceive(PrompterModel.shared.$isPresented.removeDuplicates()) { prompterPresented = $0 }
+        .onReceive(PrompterModel.shared.$presentationScreenID.removeDuplicates()) { prompterScreenID = $0 }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: showsPrompterReading)
+        .onChange(of: vm.interactionLocks.isLocked) { _, locked in
+            if locked {
+                hoverTask?.cancel()
+            } else if !isHovering && vm.notchState == .open {
+                handleHover(false)
+            }
+        }
         .onChange(of: focusTimer.isEditingGoal) { _, editing in
             if !editing && !isHovering && vm.notchState == .open {
                 vm.close()
@@ -1349,7 +1411,8 @@ struct ContentView: View {
         }
         .onChange(of: coordinator.currentView) { _, selectedView in
             if vm.notchState == .open {
-                vm.notchSize = expandedPanelSize(for: selectedView)
+                vm.notchSize = PrompterModel.shared.isPresented && PrompterModel.shared.presentationScreenID == vm.screenUUID
+                    ? PrompterPanelController.readingSize : expandedPanelSize(for: selectedView)
             }
         }
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
@@ -1495,6 +1558,10 @@ struct ContentView: View {
                         FocusTimerControls()
                     case .everyday:
                         EverydayToolsView()
+                    case .prompter:
+                        PrompterEditorView()
+                    case .tasks:
+                        MorisTasksView()
                     }
                 }
                 .transition(
@@ -1538,11 +1605,7 @@ struct ContentView: View {
                 HStack(spacing: 7) {
                     Image(nsImage: musicManager.albumArt).resizable().scaledToFill()
                         .frame(width: 20, height: 20).clipShape(RoundedRectangle(cornerRadius: 5))
-                    if reduceMotion {
-                        Image(systemName: "waveform").font(.system(size: 12))
-                    } else {
-                        AudioSpectrumView(isPlaying: $musicManager.isPlaying).frame(width: 16, height: 12)
-                    }
+                    CompactMusicSpectrum(isPlaying: $musicManager.isPlaying, tint: compactSpectrumColor)
                 }
                 .foregroundStyle(Color(nsColor: musicManager.avgColor))
                 .frame(width: 70, height: vm.effectiveClosedNotchHeight).contentShape(Rectangle())
@@ -1585,23 +1648,29 @@ struct ContentView: View {
 
     private var persistentLyricsView: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { timeline in
+            let darkText = floatingLyricStyle == .transparent && !reduceTransparency && adaptiveLyricContrast && lyricContrast.usesDarkText
+            let textColor: Color = darkText ? .black : .white
+            let outline: Color = floatingLyricStyle == .black ? .clear : (darkText ? .white : .black)
             let delta = max(0, timeline.date.timeIntervalSince(musicManager.timestampDate))
             let elapsed = min(musicManager.songDuration, musicManager.elapsedTime + delta * musicManager.playbackRate)
             let context = musicManager.lyricContext(at: elapsed)
             VStack(alignment: lyricAlignment == .leading ? .leading : .center, spacing: 1) {
                 Text(context.current)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(textColor)
                     .contentTransition(.opacity)
                 if persistentNotchLyricLines == 2 {
                     Text(context.next ?? " ")
                         .font(.system(size: 9.5))
-                        .foregroundStyle(.white.opacity(0.75))
+                        .foregroundStyle(textColor.opacity(0.85))
                 }
             }
             .lineLimit(1)
             .multilineTextAlignment(lyricAlignment.textAlignment)
-            .shadow(color: .black.opacity(0.9), radius: 3, y: 1)
+            .shadow(color: outline.opacity(0.9), radius: 0.8, x: 1)
+            .shadow(color: outline.opacity(0.9), radius: 0.8, x: -1)
+            .shadow(color: outline.opacity(0.9), radius: 0.8, y: 1)
+            .shadow(color: outline.opacity(0.9), radius: 0.8, y: -1)
             .frame(width: floatingLyricStyle == .black ? 320 : max(220, min(380, ambientNotchWidth - 32)), alignment: lyricAlignment.frameAlignment)
             .padding(.horizontal, 12)
             .padding(.top, floatingLyricStyle == .transparent ? 14 : 10)
@@ -1651,8 +1720,14 @@ struct ContentView: View {
         RestingCatEyes(
             cameraGap: restingCatCameraGap,
             height: vm.effectiveClosedNotchHeight,
-            isActive: !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup
+            isActive: !showsTaskPopup && !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup
         )
+        .overlay(alignment: .bottomTrailing) {
+            if codingTasks.runningCount > 0 {
+                Circle().fill(.blue).frame(width: 5, height: 5)
+                    .accessibilityLabel("\(codingTasks.runningCount) local tasks running")
+            }
+        }
     }
 
     private var restingCatCameraGap: CGFloat {
@@ -1729,18 +1804,8 @@ struct ContentView: View {
 
             HStack {
                 if showsPersistentLyrics || useMusicVisualizer {
-                    Rectangle()
-                        .fill(
-                            Defaults[.coloredSpectrogram]
-                                ? Color(nsColor: musicManager.avgColor).gradient
-                                : Color.gray.gradient
-                        )
-                        .frame(width: 50, alignment: .center)
+                    CompactMusicSpectrum(isPlaying: $musicManager.isPlaying, tint: compactSpectrumColor)
                         .matchedGeometryEffect(id: "spectrum", in: albumArtNamespace)
-                        .mask {
-                            AudioSpectrumView(isPlaying: $musicManager.isPlaying)
-                                .frame(width: 16, height: 12)
-                        }
                 } else {
                     LottieAnimationContainer()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1763,6 +1828,11 @@ struct ContentView: View {
             height: vm.effectiveClosedNotchHeight,
             alignment: .center
         )
+    }
+
+    private var compactSpectrumColor: Color {
+        Defaults[.coloredSpectrogram]
+            ? Color(nsColor: musicManager.avgColor).ensureMinimumBrightness(factor: 0.65) : .white
     }
 
     @ViewBuilder
@@ -1821,15 +1891,16 @@ struct ContentView: View {
                 }
             }
         } else {
+            isHovering = false
+            if vm.interactionLocks.isLocked {
+                return
+            }
             hoverTask = Task {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard !Task.isCancelled else { return }
                 
                 await MainActor.run {
-                    withAnimation(animationSpring) {
-                        self.isHovering = false
-                    }
-                    
+                    guard !Task.isCancelled, !self.isHovering, !self.vm.interactionLocks.isLocked else { return }
                     if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
                         self.vm.close()
                     }

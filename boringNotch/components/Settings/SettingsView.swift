@@ -725,6 +725,7 @@ struct Media: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    LyricContrastPreferences().disabled(floatingLyricStyle == .black)
                     Defaults.Toggle("Album-color ambient glow", key: .floatingLyricsAmbient)
                         .disabled(floatingLyricStyle == .black)
                     VStack(alignment: .leading, spacing: 8) {

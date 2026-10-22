@@ -38,6 +38,10 @@ struct DynamicNotchApp: App {
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             CheckForUpdatesView(updater: updaterController.updater)
             Divider()
+            KeepAwakeMenuButton()
+            Button("Open MORIS Prompter") {
+                coordinatorPrompter()
+            }
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
             }
@@ -45,6 +49,15 @@ struct DynamicNotchApp: App {
                 NSApplication.shared.terminate(self)
             }
             .keyboardShortcut(KeyEquivalent("Q"), modifiers: .command)
+        }
+    }
+
+    private func coordinatorPrompter() {
+        BoringViewCoordinator.shared.currentView = .prompter
+        if PrompterModel.shared.hasScript {
+            PrompterPanelController.shared.present()
+        } else {
+            appDelegate.vm.open()
         }
     }
 }
@@ -72,7 +85,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls.prefix(8) { MorisTaskStore.shared.receive(url) }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        KeepAwakeModel.shared.stop()
+        MorisTaskStore.shared.dismissNotice()
+        PrompterPanelController.shared.dismiss()
         NotificationCenter.default.removeObserver(self)
         if let observer = screenLockedObserver {
             DistributedNotificationCenter.default().removeObserver(observer)

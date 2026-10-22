@@ -11,7 +11,11 @@ Task { @MainActor in
     let first = store.notice?.id
     store.preview()
     precondition(store.notice?.id != first)
-    try? await Task.sleep(for: .seconds(4.2))
+    // Allow executor scheduling jitter while still bounding automatic dismissal.
+    let dismissalDeadline = ContinuousClock.now.advanced(by: .seconds(8))
+    while store.notice != nil && ContinuousClock.now < dismissalDeadline {
+        try? await Task.sleep(for: .milliseconds(100))
+    }
     precondition(store.notice == nil)
     store.preview()
     store.dismiss()

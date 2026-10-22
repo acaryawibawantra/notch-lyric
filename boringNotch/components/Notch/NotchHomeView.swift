@@ -598,6 +598,7 @@ struct NotchHomeView: View {
 
     private var companionShortcuts: some View {
         HStack(spacing: 4) {
+            LiveLyricsShortcut()
             Spacer(minLength: 0)
             ForEach([MediaCompanion.calendar, .reminders, .timer, .focus, .lyrics], id: \.self) { panel in
                 Button {

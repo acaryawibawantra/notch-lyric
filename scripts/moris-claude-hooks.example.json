@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/bin/sh \"/ABSOLUTE/PATH/TO/MORIS/scripts/moris-task.sh\" hook"}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "/bin/sh \"/ABSOLUTE/PATH/TO/MORIS/scripts/moris-task.sh\" hook"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "/bin/sh \"/ABSOLUTE/PATH/TO/MORIS/scripts/moris-task.sh\" hook"}]}],
+    "StopFailure": [{"hooks": [{"type": "command", "command": "/bin/sh \"/ABSOLUTE/PATH/TO/MORIS/scripts/moris-task.sh\" hook"}]}],
+    "Notification": [{"matcher": "permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "/bin/sh \"/ABSOLUTE/PATH/TO/MORIS/scripts/moris-task.sh\" hook"}]}]
+  }
+}

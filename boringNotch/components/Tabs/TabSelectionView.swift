@@ -18,7 +18,9 @@ let tabs = [
     TabModel(label: "Media", icon: "music.note", view: .home),
     TabModel(label: "Focus", icon: "timer", view: .focus),
     TabModel(label: "Shelf", icon: "tray.fill", view: .shelf),
-    TabModel(label: "Tools", icon: "square.grid.2x2", view: .everyday)
+    TabModel(label: "Tools", icon: "square.grid.2x2", view: .everyday),
+    TabModel(label: "Prompter", icon: "text.viewfinder", view: .prompter),
+    TabModel(label: "Tasks", icon: "terminal", view: .tasks)
 ]
 
 struct TabSelectionView: View {

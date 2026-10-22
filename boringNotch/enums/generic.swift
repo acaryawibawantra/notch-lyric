@@ -29,6 +29,8 @@ public enum NotchViews {
     case shelf
     case focus
     case everyday
+    case prompter
+    case tasks
 }
 
 enum SettingsEnum {

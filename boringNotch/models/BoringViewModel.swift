@@ -9,6 +9,16 @@ import Combine
 import Defaults
 import SwiftUI
 
+/// Independent owners keep popovers and nested permission dialogs from releasing
+/// one another's hold. Each notch window has its own locks.
+struct NotchInteractionLocks {
+    private(set) var owners: Set<UUID> = []
+    var isLocked: Bool { !owners.isEmpty }
+    mutating func set(_ owner: UUID, active: Bool) {
+        if active { owners.insert(owner) } else { owners.remove(owner) }
+    }
+}
+
 class BoringViewModel: NSObject, ObservableObject {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @ObservedObject var detector = FullscreenMediaDetector.shared
@@ -18,6 +28,12 @@ class BoringViewModel: NSObject, ObservableObject {
 
     @Published var contentType: ContentType = .normal
     @Published private(set) var notchState: NotchState = .closed
+    @Published private(set) var interactionLocks = NotchInteractionLocks()
+
+    func setInteraction(_ owner: UUID, active: Bool) {
+        guard interactionLocks.owners.contains(owner) != active else { return }
+        interactionLocks.set(owner, active: active)
+    }
 
     @Published var dragDetectorTargeting: Bool = false
     @Published var generalDropTargeting: Bool = false
@@ -190,7 +206,8 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = expandedPanelSize(for: coordinator.currentView)
+        self.notchSize = PrompterModel.shared.isPresented && PrompterModel.shared.presentationScreenID == screenUUID
+            ? PrompterPanelController.readingSize : expandedPanelSize(for: coordinator.currentView)
         self.notchState = .open
         
         // Force music information update when notch is opened
@@ -198,6 +215,10 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func close() {
+        guard !interactionLocks.isLocked else { return }
+        guard !MorisTaskStore.shared.isConfiguring else { return }
+        guard !(PrompterModel.shared.isPresented && PrompterModel.shared.presentationScreenID == screenUUID) else { return }
+        guard !PrompterModel.shared.isEditing else { return }
         guard !anyDropZoneTargeting, !ShelfStateViewModel.shared.isLoading else { return }
         guard !FocusTimerModel.shared.isEditingGoal, !FocusTaskStore.shared.isEditing, !ClipboardHistoryStore.shared.isEditing,
               !ShelfSelectionModel.shared.isEditingSearch, !ShelfSelectionModel.shared.isPreviewing else { return }

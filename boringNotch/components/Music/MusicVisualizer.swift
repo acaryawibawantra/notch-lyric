@@ -102,19 +102,41 @@ class AudioSpectrum: NSView {
             stopAnimating()
         }
     }
+
+    func setColor(_ color: NSColor) {
+        for bar in barLayers { bar.fillColor = color.cgColor; bar.backgroundColor = color.cgColor }
+    }
 }
 
 struct AudioSpectrumView: NSViewRepresentable {
     @Binding var isPlaying: Bool
+    var color: NSColor = .white
     
     func makeNSView(context: Context) -> AudioSpectrum {
         let spectrum = AudioSpectrum()
         spectrum.setPlaying(isPlaying)
+        spectrum.setColor(color)
         return spectrum
     }
     
     func updateNSView(_ nsView: AudioSpectrum, context: Context) {
         nsView.setPlaying(isPlaying)
+        nsView.setColor(color)
+    }
+}
+
+/// Draw native spectrum bars directly, never through a SwiftUI mask.
+struct CompactMusicSpectrum: View {
+    @Binding var isPlaying: Bool
+    var tint: Color = .white
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        Group {
+            if reduceMotion { Image(systemName: "waveform").font(.system(size: 12)).foregroundStyle(tint) }
+            else { AudioSpectrumView(isPlaying: $isPlaying, color: NSColor(tint)) }
+        }
+        .frame(width: 16, height: 14)
+        .accessibilityLabel(isPlaying ? "Music playing" : "Music paused")
     }
 }
 

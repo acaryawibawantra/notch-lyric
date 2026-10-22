@@ -222,6 +222,7 @@ extension Defaults.Keys {
     static let persistentNotchLyricLines = Key<Int>("persistentNotchLyricLines", default: 1)
     static let floatingLyricStyle = Key<FloatingLyricStyle>("floatingLyricStyle", default: .transparent)
     static let floatingLyricsAmbient = Key<Bool>("floatingLyricsAmbient", default: true)
+    static let adaptiveLyricContrast = Key<Bool>("adaptiveLyricContrast", default: false)
     static let lyricGradientIntensity = Key<Double>("lyricGradientIntensity", default: 0.55)
     static let lyricGradientDepth = Key<Double>("lyricGradientDepth", default: 64)
     static let compactActivity = Key<CompactActivity>("compactActivity", default: .automatic)

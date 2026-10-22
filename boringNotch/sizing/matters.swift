@@ -23,6 +23,8 @@ func expandedPanelSize(for view: NotchViews) -> CGSize {
     case .home where Defaults[.enableLyrics]: CGSize(width: openNotchSize.width, height: Defaults[.lyricDisplayMode] == .karaoke ? 276 : 256)
     case .home: CGSize(width: openNotchSize.width, height: 236)
     case .focus: timeToolsSize
+    case .prompter: timeToolsSize
+    case .tasks: timeToolsSize
     case .shelf: CGSize(width: timeToolsSize.width, height: 310)
     case .everyday: CGSize(width: openNotchSize.width, height: 300)
     default: openNotchSize
