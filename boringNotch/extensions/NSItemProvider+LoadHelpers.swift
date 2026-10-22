@@ -43,26 +43,7 @@ extension NSItemProvider {
                     }
                     self.suggestedName = self.suggestedName ?? url.lastPathComponent
                     
-                    let fileManager = FileManager.default
-                    let folderURL = url.deletingLastPathComponent()
-
-                    do {
-                        // Delete the file first
-                        try fileManager.removeItem(at: url)
-                        print("Deleted file: \(url.path)")
-
-                        // Check folder contents
-                        let contents = try fileManager.contentsOfDirectory(atPath: folderURL.path)
-                        if contents.isEmpty {
-                            try fileManager.removeItem(at: folderURL)
-                            print("Folder was empty, deleted folder: \(folderURL.path)")
-                        } else {
-                            print("Folder not deleted — it still contains \(contents.count) item(s).")
-                        }
-
-                    } catch {
-                        print("Error: \(error.localizedDescription)")
-                    }
+                    // The provider owns this file. Read a copy, never delete its source.
                     
                     cont.resume(returning: data)
                 } else if let data = item as? Data {
@@ -115,11 +96,11 @@ extension NSItemProvider {
                 } else if let data = item as? Data {
                     // Some providers hand out a UTF-8 file URL string, others a bookmark. Prefer parsing string first.
                     if let string = String(data: data, encoding: .utf8) {
-                        if let url = URL(string: string) {
-                            resolvedURL = url
-                        } else if string.hasPrefix("/") {
+                        if string.hasPrefix("/") {
                             // Plain file system path
                             resolvedURL = URL(fileURLWithPath: string)
+                        } else if let url = URL(string: string), url.isFileURL {
+                            resolvedURL = url
                         }
                     }
                     if resolvedURL == nil {
@@ -128,10 +109,10 @@ extension NSItemProvider {
                         resolvedURL = bookmark.resolveURL()
                     }
                 } else if let string = item as? String {
-                    if let url = URL(string: string) {
-                        resolvedURL = url
-                    } else if string.hasPrefix("/") {
+                    if string.hasPrefix("/") {
                         resolvedURL = URL(fileURLWithPath: string)
+                    } else if let url = URL(string: string), url.isFileURL {
+                        resolvedURL = url
                     }
                 }
                 cont.resume(returning: resolvedURL)

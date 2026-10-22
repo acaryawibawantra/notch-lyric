@@ -1,0 +1,15 @@
+func detect(_ app: String, _ title: String, _ buttons: [String]) -> String? {
+    CallDetectionRules.phase(bundle: app, windowTitle: title, buttons: buttons)
+}
+precondition(detect("com.apple.FaceTime", "FaceTime", ["Accept", "Decline"]) == "incoming")
+precondition(detect("com.apple.mobilephone", "Panggilan", ["Jawab", "Tolak"]) == "incoming")
+precondition(detect("net.whatsapp.WhatsApp", "Voice call", ["Answer", "Decline"]) == "incoming")
+precondition(detect("us.zoom.xos", "Meeting", ["Mute microphone", "Leave meeting"]) == "active")
+precondition(detect("com.apple.FaceTime", "FaceTime", ["Start call", "Contacts"]) == nil)
+precondition(detect("net.whatsapp.WhatsApp", "Chat", ["Accept invitation", "Decline invitation"]) == nil)
+precondition(detect("com.microsoft.teams2", "Meeting", ["Join meeting", "Microphone"]) == nil)
+precondition(detect("com.apple.Safari", "Incoming call", ["Answer", "Decline"]) == nil)
+precondition(detect("com.apple.FaceTime", "FaceTime", ["Decline"]) == nil)
+precondition(detect("net.whatsapp.WhatsApp", "Chat", ["Mute notifications"]) == nil)
+precondition(detect("net.whatsapp.WhatsApp", "Chat", ["End call", "Mute"]) == nil)
+print("PASS: conservative incoming/active controls, English/Indonesian labels, reject idle/chat/invite/join-preview/unlisted-app false positives")

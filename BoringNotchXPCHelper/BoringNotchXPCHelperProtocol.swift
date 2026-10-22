@@ -12,6 +12,7 @@ import Foundation
     func postEventAccess(_ prompt: Bool, with reply: @escaping (Bool) -> Void)
     func pasteIntoApplication(_ pid: Int32, with reply: @escaping (Bool) -> Void)
     func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void)
+    func callActivitySnapshot(with reply: @escaping (String?) -> Void)
     func requestAccessibilityAuthorization()
     func ensureAccessibilityAuthorization(_ promptIfNeeded: Bool, with reply: @escaping (Bool) -> Void)
     // Keyboard backlight / CoreBrightness access (performed by the helper)

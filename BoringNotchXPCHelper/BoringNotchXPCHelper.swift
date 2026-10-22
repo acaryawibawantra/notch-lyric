@@ -12,6 +12,9 @@ import CoreGraphics
 import AppKit
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
+    @objc func callActivitySnapshot(with reply: @escaping (String?) -> Void) {
+        CallAccessibilityScanner.snapshot(reply: reply)
+    }
     @objc func pasteIntoApplication(_ pid: Int32, with reply: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
             guard CGPreflightPostEventAccess(), pid > 0,

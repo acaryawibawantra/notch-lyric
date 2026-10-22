@@ -12,6 +12,7 @@ import Defaults
 import KeyboardShortcuts
 import SwiftUI
 import SwiftUIIntrospect
+import UniformTypeIdentifiers
 
 private struct CompactNotchWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -113,13 +114,15 @@ private final class LyricsPanelAnchor<Content: View>: NSView {
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
             panel.level = window.level
-            window.addChildWindow(panel, ordered: .above)
+            // The notch silhouette must occlude the glow, not be tinted by a
+            // rectangular child panel. Its actual rounded corners form the seam.
+            window.addChildWindow(panel, ordered: .below)
         }
         if abs(panel.frame.width - panelWidth) > 0.5 {
             panel.setContentSize(NSSize(width: panelWidth, height: 100))
         }
         positionPanel()
-        if !panel.isVisible { panel.orderFrontRegardless() }
+        if !panel.isVisible { panel.order(.below, relativeTo: window.windowNumber) }
     }
 
     @objc private func parentWindowMoved(_ notification: Notification) {
@@ -174,6 +177,9 @@ final class FocusTimerModel: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var isVisible = false
     @Published private(set) var isFinished = false
+    @Published private(set) var showsCompletion = false
+    private var completionUntil: Date?
+    var hasCompactActivity: Bool { isVisible && (!isFinished || showsCompletion) }
     private var deadline: Date?
     private var ticker: AnyCancellable?
     private let storage: UserDefaults
@@ -198,6 +204,7 @@ final class FocusTimerModel: ObservableObject {
         var selectedTaskTitle: String?
         var selectedReminderID: String?
         var pendingReminderID: String?
+        var completionUntil: Date?
     }
 
     init(storage: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
@@ -222,10 +229,13 @@ final class FocusTimerModel: ObservableObject {
             deadline = saved.deadline
             isVisible = saved.visible
             isFinished = saved.finished
+            completionUntil = saved.completionUntil
+            showsCompletion = saved.finished && (saved.completionUntil.map { $0 > now() } ?? false)
             phase = saved.phase
             history = saved.history
             isRunning = deadline != nil
-            if isRunning { updateRemainingTime(); if isRunning { startTicker() } }
+            if isRunning { updateRemainingTime() }
+            if isRunning || showsCompletion { startTicker() }
         }
     }
 
@@ -249,6 +259,8 @@ final class FocusTimerModel: ObservableObject {
             remainingSeconds = sessionMinutes * 60
         }
         isFinished = false
+        showsCompletion = false
+        completionUntil = nil
         isVisible = true
         isRunning = true
         deadline = now().addingTimeInterval(Double(remainingSeconds))
@@ -266,11 +278,22 @@ final class FocusTimerModel: ObservableObject {
     }
 
     func updateRemainingTime() {
-        guard let deadline else { return }
+        guard let deadline else {
+            if showsCompletion, let completionUntil, now() >= completionUntil {
+                showsCompletion = false
+                self.completionUntil = nil
+                ticker?.cancel()
+                ticker = nil
+                save()
+            }
+            return
+        }
         remainingSeconds = max(0, Int(ceil(deadline.timeIntervalSince(now()))))
         if remainingSeconds == 0 {
             isRunning = false
             isFinished = true
+            completionUntil = deadline.addingTimeInterval(5)
+            showsCompletion = now() < deadline.addingTimeInterval(5)
             if phase == .focus {
                 history.append(FocusSessionRecord(endedAt: deadline, minutes: durationMinutes, goal: goal))
                 history = Array(history.suffix(500))
@@ -281,8 +304,7 @@ final class FocusTimerModel: ObservableObject {
                 selectedTaskTitle = nil
             }
             self.deadline = nil
-            ticker?.cancel()
-            ticker = nil
+            if !showsCompletion { ticker?.cancel(); ticker = nil }
             save()
             if pendingReminderID != nil { Task { await syncCompletedReminder() } }
             if soundEnabled { completionSound() }
@@ -291,6 +313,7 @@ final class FocusTimerModel: ObservableObject {
 
     func pause() {
         updateRemainingTime()
+        guard !isFinished else { return }
         isRunning = false
         deadline = nil
         ticker?.cancel()
@@ -305,6 +328,8 @@ final class FocusTimerModel: ObservableObject {
         isRunning = false
         isFinished = false
         isVisible = false
+        showsCompletion = false
+        completionUntil = nil
         phase = .focus
         remainingSeconds = durationMinutes * 60
         save()
@@ -347,7 +372,8 @@ final class FocusTimerModel: ObservableObject {
                                 goal: goal, remaining: remainingSeconds, deadline: deadline,
                                 visible: isVisible, finished: isFinished, phase: phase, history: history,
                                 selectedTaskID: selectedTaskID, selectedTaskTitle: selectedTaskTitle,
-                                selectedReminderID: selectedReminderID, pendingReminderID: pendingReminderID)
+                                selectedReminderID: selectedReminderID, pendingReminderID: pendingReminderID,
+                                completionUntil: completionUntil)
         if let data = try? JSONEncoder().encode(snapshot) { storage.set(data, forKey: storageKey) }
     }
 }
@@ -365,6 +391,9 @@ final class UtilityClockModel: ObservableObject {
     @Published private(set) var remaining = 300
     @Published private(set) var timerVisible = false
     @Published private(set) var timerDone = false
+    @Published private(set) var showsTimerCompletion = false
+    private var completionUntil: Date?
+    var hasCompactTimer: Bool { timerVisible && (!timerDone || showsTimerCompletion) }
     @Published private(set) var stopwatchSeconds = 0
     @Published private(set) var timerRunning = false
     @Published private(set) var stopwatchRunning = false
@@ -386,6 +415,7 @@ final class UtilityClockModel: ObservableObject {
         var deadline: Date?
         var stopwatchStart: Date?
         var accumulated: TimeInterval
+        var completionUntil: Date?
     }
 
     init(storage: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
@@ -399,6 +429,8 @@ final class UtilityClockModel: ObservableObject {
             remaining = max(0, saved.remaining)
             timerVisible = saved.visible
             timerDone = saved.done
+            completionUntil = saved.completionUntil
+            showsTimerCompletion = saved.done && (saved.completionUntil.map { $0 > now() } ?? false)
             deadline = saved.deadline
             stopwatchStart = saved.stopwatchStart
             accumulated = max(0, saved.accumulated)
@@ -424,6 +456,8 @@ final class UtilityClockModel: ObservableObject {
             if !timerVisible || timerDone { remaining = selectedSeconds }
             timerVisible = true
             timerDone = false
+            showsTimerCompletion = false
+            completionUntil = nil
             timerRunning = true
             deadline = now().addingTimeInterval(Double(remaining))
         }
@@ -436,6 +470,8 @@ final class UtilityClockModel: ObservableObject {
         timerRunning = false
         timerVisible = false
         timerDone = false
+        showsTimerCompletion = false
+        completionUntil = nil
         remaining = selectedSeconds
         save()
         schedule()
@@ -485,18 +521,25 @@ final class UtilityClockModel: ObservableObject {
                 self.deadline = nil
                 timerRunning = false
                 timerDone = true
+                completionUntil = deadline.addingTimeInterval(5)
+                showsTimerCompletion = now() < deadline.addingTimeInterval(5)
                 save()
                 completionSound()
             }
         }
         stopwatchSeconds = Int(accumulated + (stopwatchStart.map { max(0, now().timeIntervalSince($0)) } ?? 0))
-        if !timerRunning && !stopwatchRunning { ticker?.cancel(); ticker = nil }
+        if showsTimerCompletion, let completionUntil, now() >= completionUntil {
+            showsTimerCompletion = false
+            self.completionUntil = nil
+            save()
+        }
+        if !timerRunning && !stopwatchRunning && !showsTimerCompletion { ticker?.cancel(); ticker = nil }
     }
 
     private func schedule() {
         ticker?.cancel()
         ticker = nil
-        guard timerRunning || stopwatchRunning else { return }
+        guard timerRunning || stopwatchRunning || showsTimerCompletion else { return }
         ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -504,7 +547,8 @@ final class UtilityClockModel: ObservableObject {
 
     private func save() {
         let snapshot = Snapshot(minutes: minutes, durationSeconds: selectedSeconds, remaining: remaining, visible: timerVisible, done: timerDone,
-                                deadline: deadline, stopwatchStart: stopwatchStart, accumulated: accumulated)
+                                deadline: deadline, stopwatchStart: stopwatchStart, accumulated: accumulated,
+                                completionUntil: completionUntil)
         if let data = try? JSONEncoder().encode(snapshot) { storage.set(data, forKey: key) }
     }
 }
@@ -526,21 +570,23 @@ private struct ToolButtonAppearance: ViewModifier {
             if prominent {
                 content.buttonStyle(.glassProminent).tint(accent.color).controlSize(compact ? .small : .regular)
             } else {
-                content.buttonStyle(.glass).tint(accent.color).controlSize(compact ? .small : .regular)
+                content.buttonStyle(.bordered).tint(.gray).controlSize(compact ? .small : .regular)
             }
         } else if prominent {
             content.buttonStyle(.borderedProminent).tint(accent.color).controlSize(compact ? .small : .regular)
         } else {
-            content.buttonStyle(.bordered).tint(accent.color).controlSize(compact ? .small : .regular)
+            content.buttonStyle(.bordered).tint(.gray).controlSize(compact ? .small : .regular)
         }
         }
-        .scaleEffect(hovering && enabled && !reduceMotion ? 1.025 : 1)
+        .font(.system(size: 12, weight: .medium))
+        .brightness(hovering && enabled ? 0.035 : 0)
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
     }
 }
 
 private struct ToolCardSurface: ViewModifier {
+    var emphasized = false
     @Default(.toolsAccent) private var accent
     @Default(.toolsRed) private var red
     @Default(.toolsGreen) private var green
@@ -550,9 +596,26 @@ private struct ToolCardSurface: ViewModifier {
     func body(content: Content) -> some View {
         content.padding(12)
             .background {
+                if emphasized {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(LinearGradient(colors: [accent.color.opacity(reduceTransparency ? 0.23 : 0.16),
+                                                      accent.color.opacity(0.055), .white.opacity(0.018)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(RadialGradient(colors: [.mint.opacity(0.07), .clear],
+                                                     center: .bottomTrailing, startRadius: 0, endRadius: 230))
+                        }
+                        .mask {
+                            // Feather the surface into the black notch; no outline.
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(LinearGradient(colors: [.black.opacity(0.55), .black, .black.opacity(0.7)],
+                                                     startPoint: .top, endPoint: .bottom))
+                        }
+                } else {
                 Rectangle()
-                    .fill(RadialGradient(colors: [accent.color.opacity(reduceTransparency ? 0.22 : 0.17),
-                                                  accent.color.opacity(0.045), .clear],
+                    .fill(RadialGradient(colors: [accent.color.opacity(reduceTransparency ? 0.16 : 0.10),
+                                                  accent.color.opacity(0.025), .clear],
                                          center: .topLeading, startRadius: 0, endRadius: 650))
                     .mask {
                         LinearGradient(stops: [.init(color: .clear, location: 0),
@@ -568,12 +631,13 @@ private struct ToolCardSurface: ViewModifier {
                                                .init(color: .clear, location: 1)],
                                        startPoint: .top, endPoint: .bottom)
                     }
+                }
             }
     }
 }
 
 extension View {
-    func toolCard() -> some View { modifier(ToolCardSurface()) }
+    func toolCard(emphasized: Bool = false) -> some View { modifier(ToolCardSurface(emphasized: emphasized)) }
     func toolButton(prominent: Bool = false, compact: Bool = false) -> some View {
         modifier(ToolButtonAppearance(prominent: prominent, compact: compact))
     }
@@ -594,8 +658,10 @@ struct FocusTimerControls: View {
                 Text("Focus session").tag("Focus")
             }
             .pickerStyle(.segmented)
+            .tint(.gray)
             .labelsHidden()
-            .frame(width: 290)
+            .controlSize(.regular)
+            .frame(width: 300)
             Group {
                 if section == "Focus" {
                     FocusSessionControls()
@@ -625,10 +691,14 @@ struct ClockToolsPanel: View {
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("Timer", systemImage: "timer").font(.headline)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Timer", systemImage: "timer").font(.system(size: 13, weight: .semibold))
+                        Text(clocks.timerDone ? "Completed" : clocks.timerRunning ? "Counting down" : clocks.timerVisible ? "Paused" : "Choose a duration")
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
                     Spacer()
                         Text(clocks.timerDone ? "Done" : UtilityClockModel.formatted(clocks.timerVisible ? clocks.remaining : clocks.selectedSeconds))
-                            .font(.system(size: 32, weight: .semibold, design: .rounded)).monospacedDigit()
+                            .font(.system(size: 34, weight: .medium, design: .rounded)).monospacedDigit()
                             .foregroundStyle(clocks.timerDone ? .green : .primary)
                             .contentTransition(.numericText(countsDown: true))
                 }
@@ -643,7 +713,10 @@ struct ClockToolsPanel: View {
                             .frame(maxWidth: .infinity).frame(height: 22)
                             .contentShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .toolButton(prominent: selected, compact: true)
+                        .toolButton(compact: true)
+                        .background(selected ? accent.color.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(selected ? accent.color : .primary)
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
                         .disabled(clocks.timerVisible && !clocks.timerDone)
                         .help("Start a \(presetLabel(seconds)) timer")
                     }
@@ -671,24 +744,24 @@ struct ClockToolsPanel: View {
                         Spacer()
                         if clocks.timerDone { Button("Dismiss") { clocks.resetTimer() } }
                         Button("Start custom") { clocks.startTimer(seconds: clocks.minutes * 60) }
-                            .toolButton()
+                            .toolButton(prominent: true)
                     }
                 }
             }
             .frame(maxWidth: .infinity)
-            .toolCard()
+            .toolCard(emphasized: true)
 
             VStack(spacing: 10) {
-                Label("Stopwatch", systemImage: "stopwatch").font(.headline)
+                Label("Stopwatch", systemImage: "stopwatch").font(.system(size: 13, weight: .semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(UtilityClockModel.formatted(clocks.stopwatchSeconds))
-                    .font(.system(size: 40, weight: .semibold, design: .rounded))
+                    .font(.system(size: 42, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .minimumScaleFactor(0.7).lineLimit(1)
                     .contentTransition(.numericText())
                     .padding(.top, 10)
                 Label(clocks.stopwatchRunning ? "Running" : clocks.stopwatchSeconds == 0 ? "Ready" : "Paused",
-                      systemImage: clocks.stopwatchRunning ? "circle.fill" : "pause.circle")
+                      systemImage: clocks.stopwatchRunning ? "circle.fill" : clocks.stopwatchSeconds == 0 ? "circle.dotted" : "pause.circle")
                     .font(.caption).foregroundStyle(clocks.stopwatchRunning ? accent.color : .secondary)
                 HStack(spacing: 8) {
                     Button("Stop", systemImage: "stop.fill") { clocks.stopStopwatch() }
@@ -699,8 +772,8 @@ struct ClockToolsPanel: View {
                         .toolButton(prominent: true)
                 }
             }
-            .frame(width: 205, height: 174)
-            .toolCard()
+            .frame(width: 205, height: 190)
+            .toolCard(emphasized: true)
         }
         .controlSize(.small)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: clocks.remaining)
@@ -730,6 +803,9 @@ struct FocusSessionControls: View {
     var body: some View {
         HStack(spacing: 16) {
             ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [accent.color.opacity(0.16), .clear],
+                                         center: .center, startRadius: 0, endRadius: 58))
                 Circle().stroke(Color.primary.opacity(0.12), lineWidth: 5)
                 Circle()
                     .trim(from: 0, to: max(0, min(1, progress)))
@@ -737,14 +813,14 @@ struct FocusSessionControls: View {
                     .rotationEffect(.degrees(-90))
                 VStack(spacing: 4) {
                     Text(timeLabel)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        .font(.system(size: 30, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .lineLimit(1).minimumScaleFactor(0.7)
                     Text(statusLabel)
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 112, height: 112)
+            .frame(width: 120, height: 120)
             VStack(alignment: .leading, spacing: 7) {
             TextField("What will you work on?", text: $timer.goal)
                 .textFieldStyle(.roundedBorder)
@@ -755,8 +831,15 @@ struct FocusSessionControls: View {
                 .disabled(timer.isVisible && !timer.isFinished)
             HStack {
                 ForEach([15, 25, 50], id: \.self) { minutes in
-                    Button("\(minutes) min") { timer.durationMinutes = minutes }
-                        .toolButton(prominent: timer.durationMinutes == minutes, compact: true)
+                    Button { timer.durationMinutes = minutes } label: {
+                        HStack(spacing: 4) {
+                            if timer.durationMinutes == minutes { Image(systemName: "checkmark").font(.caption2) }
+                            Text("\(minutes) min")
+                        }
+                    }
+                        .toolButton(compact: true)
+                        .foregroundStyle(timer.durationMinutes == minutes ? accent.color : .primary)
+                        .accessibilityAddTraits(timer.durationMinutes == minutes ? .isSelected : [])
                         .disabled(timer.isVisible && !timer.isFinished)
                 }
             }
@@ -779,14 +862,14 @@ struct FocusSessionControls: View {
                     .toolButton()
                 }
             }
-            Text("Today: \(timer.completedSessions) sessions · \(timer.focusedMinutesToday) min focused")
-                .font(.caption).foregroundStyle(.secondary)
+            Label("\(timer.completedSessions) sessions · \(timer.focusedMinutesToday) min today", systemImage: "chart.bar.fill")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            Divider().frame(height: 165)
+            Rectangle().fill(.white.opacity(0.07)).frame(width: 1, height: 165).accessibilityHidden(true)
             FocusTaskList().frame(width: 185)
         }
         .padding(.horizontal, 8)
-        .toolCard()
+        .toolCard(emphasized: true)
         .onChange(of: editingGoal) { _, editing in timer.isEditingGoal = editing }
         .onDisappear { timer.isEditingGoal = false }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
@@ -872,6 +955,13 @@ struct ContentView: View {
     @State private var wellnessOwner = UUID()
     @State private var wellnessSessionUnlocked = true
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
+    @ObservedObject private var deviceConnections = DeviceConnectionStore.shared
+    @Default(.deviceConnectionPopups) private var deviceConnectionPopups
+    @ObservedObject private var agenda = CalendarAgendaStore.shared
+    @Default(.calendarAgendaPopups) private var calendarAgendaPopups
+    @State private var agendaOwner = UUID()
+    @ObservedObject private var calls = CallActivityStore.shared
+    @Default(.experimentalCallDetection) private var experimentalCallDetection
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
     @State private var hoverTask: Task<Void, Never>?
@@ -910,7 +1000,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var usesFocusActivity: Bool {
-        (focusTimer.isVisible || utilityClocks.timerVisible || utilityClocks.stopwatchRunning || utilityClocks.stopwatchSeconds > 0)
+        (focusTimer.hasCompactActivity || utilityClocks.hasCompactTimer || utilityClocks.stopwatchRunning || utilityClocks.stopwatchSeconds > 0)
             && compactActivity != .music
     }
 
@@ -921,11 +1011,35 @@ struct ContentView: View {
 
     private var floatingLyricsVisible: Bool {
         showsPersistentLyrics && vm.notchState == .closed && !coordinator.helloAnimationRunning
-            && !coordinator.sneakPeek.show && !coordinator.expandingView.show && !showsWellnessBanner
+            && !coordinator.sneakPeek.show && !coordinator.expandingView.show && !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup
+    }
+
+    private var showsCallPopup: Bool {
+        calls.activity != nil && wellnessSessionUnlocked && !vm.hideOnClosed
+            && !coordinator.firstLaunch && !coordinator.helloAnimationRunning && !coordinator.expandingView.show
+            && !vm.anyDropZoneTargeting && !shelfSelection.isDragging && !shelfSelection.isPreviewing
+            && !focusTimer.isEditingGoal && !focusTasks.isEditing && !clipboardHistory.isEditing && !shelfSelection.isEditingSearch
+            && !wellnessSharingState.preventNotchClose
+    }
+
+    private var showsDevicePopup: Bool {
+        deviceConnections.notice != nil && wellnessSessionUnlocked && !vm.hideOnClosed && vm.notchState == .closed
+            && !coordinator.firstLaunch && !coordinator.helloAnimationRunning && !coordinator.expandingView.show
+            && !coordinator.sneakPeek.show && !showsWellnessBanner && !vm.anyDropZoneTargeting
+            && !shelfSelection.isDragging && !ShelfStateViewModel.shared.isLoading && !showsAgendaPopup && !showsCallPopup
+    }
+
+    private var showsAgendaPopup: Bool {
+        agenda.notice != nil && wellnessSessionUnlocked && !vm.hideOnClosed && !showsCallPopup
+            && !coordinator.firstLaunch && !coordinator.helloAnimationRunning && !coordinator.expandingView.show
+            && !coordinator.sneakPeek.show && !showsWellnessBanner && !vm.anyDropZoneTargeting
+            && !shelfSelection.isDragging && !ShelfStateViewModel.shared.isLoading && !shelfSelection.isPreviewing
+            && !focusTimer.isEditingGoal && !focusTasks.isEditing && !clipboardHistory.isEditing && !shelfSelection.isEditingSearch
+            && !wellnessSharingState.preventNotchClose
     }
 
     private var showsWellnessBanner: Bool {
-        everydayReminders.pending != nil && wellnessSessionUnlocked && !vm.hideOnClosed
+        everydayReminders.pending != nil && wellnessSessionUnlocked && !vm.hideOnClosed && !showsCallPopup
             && !coordinator.firstLaunch && !coordinator.helloAnimationRunning
             && !coordinator.sneakPeek.show && !coordinator.expandingView.show
             && !focusTimer.isEditingGoal && !focusTasks.isEditing && !clipboardHistory.isEditing
@@ -970,8 +1084,9 @@ struct ContentView: View {
 
         if coordinator.expandingView.type == .battery && coordinator.expandingView.show
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
+            && !vm.hideOnClosed && wellnessSessionUnlocked
         {
-            chinWidth = 640
+            chinWidth = 488
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
@@ -981,7 +1096,9 @@ struct ContentView: View {
             && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace]
             && !vm.hideOnClosed
         {
-            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
+            chinWidth = restingCatCameraGap + (restingCatCameraGap > 0 ? 0 : 8)
+                + 2 * (min(22, max(10, vm.effectiveClosedNotchHeight - 12)) + 12)
+                + 2 * cornerRadiusInsets.closed.bottom
         }
 
         return chinWidth
@@ -1119,8 +1236,43 @@ struct ContentView: View {
                         .frame(width: computedChinWidth, height: vm.chinHeight)
                 }
             }
-            .opacity(showsWellnessBanner ? 0 : 1)
-            .allowsHitTesting(!showsWellnessBanner)
+            .opacity(showsWellnessBanner || showsDevicePopup || showsAgendaPopup || showsCallPopup ? 0 : 1)
+            .allowsHitTesting(!showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup)
+            if showsCallPopup, let call = calls.activity {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+                    CallActivityPopup(call: call)
+                        .padding(.horizontal, 22).padding(.top, 8).padding(.bottom, 20)
+                }
+                .frame(width: 480).background(.black)
+                .clipShape(NotchShape(topCornerRadius: 19, bottomCornerRadius: 24))
+                .transition(.opacity).zIndex(12)
+            }
+            if showsAgendaPopup, let alert = agenda.notice {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+                    CalendarAgendaPopup(alert: alert)
+                        .padding(.horizontal, 22).padding(.top, 8).padding(.bottom, 20)
+                }
+                .frame(width: 480)
+                .background(.black)
+                .clipShape(NotchShape(topCornerRadius: 19, bottomCornerRadius: 24))
+                .transition(.opacity).zIndex(11)
+                .onAppear { agenda.beginPresentation(owner: agendaOwner) }
+                .onDisappear { agenda.endPresentation(owner: agendaOwner) }
+            }
+            if showsDevicePopup, let notice = deviceConnections.notice {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+                    DeviceConnectionPopup(notice: notice)
+                        .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 24)
+                }
+                .frame(width: 460)
+                .background(.black)
+                .clipShape(NotchShape(topCornerRadius: 19, bottomCornerRadius: 24))
+                .transition(.opacity)
+                .zIndex(9)
+            }
             if showsWellnessBanner, let reminder = everydayReminders.pending {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
@@ -1138,6 +1290,21 @@ struct ContentView: View {
             }
         }
         .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.45, dampingFraction: 0.86), value: showsWellnessBanner)
+        .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.88), value: coordinator.expandingView.show)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: usesFocusActivity)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: showsDevicePopup)
+        .task { deviceConnections.configure(enabled: deviceConnectionPopups) }
+        .onChange(of: deviceConnectionPopups) { _, enabled in deviceConnections.configure(enabled: enabled) }
+        .task { agenda.configure(enabled: calendarAgendaPopups) }
+        .onChange(of: calendarAgendaPopups) { _, enabled in agenda.configure(enabled: enabled) }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showsAgendaPopup)
+        .task { calls.configure(enabled: experimentalCallDetection); calls.suspend(!wellnessSessionUnlocked) }
+        .onChange(of: experimentalCallDetection) { _, enabled in calls.configure(enabled: enabled) }
+        .onChange(of: wellnessSessionUnlocked) { _, unlocked in calls.suspend(!unlocked) }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showsCallPopup)
+        .onChange(of: deviceConnections.notice?.id) { _, _ in
+            if !wellnessSessionUnlocked { deviceConnections.dismiss() }
+        }
         .onReceive(DistributedNotificationCenter.default().publisher(for: NSNotification.Name("com.apple.screenIsLocked"))) { _ in wellnessSessionUnlocked = false }
         .onReceive(DistributedNotificationCenter.default().publisher(for: NSNotification.Name("com.apple.screenIsUnlocked"))) { _ in wellnessSessionUnlocked = true }
         .padding(.bottom, 8)
@@ -1154,7 +1321,7 @@ struct ContentView: View {
         .background {
             FloatingLyricsPanel(
                 isVisible: floatingLyricsVisible && floatingLyricStyle == .transparent,
-                topInset: max(0, vm.effectiveClosedNotchHeight - 4),
+                topInset: max(0, vm.effectiveClosedNotchHeight - 8),
                 width: floatingPanelWidth,
                 content: persistentLyricsView
                     .preferredColorScheme(.dark)
@@ -1189,9 +1356,10 @@ struct ContentView: View {
             anyDropDebounceTask?.cancel()
 
             if isTargeted {
-                if vm.notchState == .closed {
+                if Defaults[.boringShelf] && !shelfSelection.isDragging {
+                    hoverTask?.cancel()
                     coordinator.currentView = .shelf
-                    doOpen()
+                    if vm.notchState == .closed { vm.open() }
                 }
                 return
             }
@@ -1230,31 +1398,17 @@ struct ContentView: View {
                 } else {
                     if coordinator.expandingView.type == .battery && coordinator.expandingView.show
                         && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
+                        && !vm.hideOnClosed && wellnessSessionUnlocked
                     {
-                        HStack(spacing: 0) {
-                            HStack {
-                                Text(batteryModel.statusText)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white)
-                            }
-
-                            Rectangle()
-                                .fill(.black)
-                                .frame(width: vm.closedNotchSize.width + 10)
-
-                            HStack {
-                                BoringBatteryView(
-                                    batteryWidth: 30,
-                                    isCharging: batteryModel.isCharging,
-                                    isInLowPowerMode: batteryModel.isInLowPowerMode,
-                                    isPluggedIn: batteryModel.isPluggedIn,
-                                    levelBattery: batteryModel.levelBattery,
-                                    isForNotification: true
-                                )
-                            }
-                            .frame(width: 76, alignment: .trailing)
+                        VStack(spacing: 0) {
+                            // All text sits below the camera's physical cutout.
+                            Color.clear.frame(height: max(24, vm.effectiveClosedNotchHeight))
+                            ChargingConfirmationView()
+                                .padding(.horizontal, 22)
+                                .padding(.top, 8)
+                                .padding(.bottom, 22)
                         }
-                        .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+                        .frame(width: 460)
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
@@ -1353,13 +1507,16 @@ struct ContentView: View {
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
             }
         }
-        .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], delegate: GeneralDropTargetDelegate(isTargeted: $vm.generalDropTargeting))
+        .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], delegate: GeneralDropTargetDelegate(isTargeted: $vm.generalDropTargeting) { providers in
+            vm.dropEvent = true
+            ShelfStateViewModel.shared.load(providers)
+        })
     }
 
     private var compactClockStatus: (label: String, icon: String, completed: Bool) {
         let hasStopwatch = utilityClocks.stopwatchRunning || utilityClocks.stopwatchSeconds > 0
-        let showFocus = focusTimer.isVisible && (!focusTimer.isFinished || (!utilityClocks.timerVisible && !hasStopwatch))
-        let showTimer = !showFocus && utilityClocks.timerVisible && (!utilityClocks.timerDone || !hasStopwatch)
+        let showFocus = focusTimer.hasCompactActivity && (!focusTimer.isFinished || (!utilityClocks.hasCompactTimer && !hasStopwatch))
+        let showTimer = !showFocus && utilityClocks.hasCompactTimer && (!utilityClocks.timerDone || !hasStopwatch)
         let completed = showFocus ? focusTimer.isFinished : showTimer ? utilityClocks.timerDone : false
         let label = showFocus
             ? (focusTimer.isFinished ? "Done" : focusTimer.displayTime)
@@ -1447,7 +1604,7 @@ struct ContentView: View {
             .shadow(color: .black.opacity(0.9), radius: 3, y: 1)
             .frame(width: floatingLyricStyle == .black ? 320 : max(220, min(380, ambientNotchWidth - 32)), alignment: lyricAlignment.frameAlignment)
             .padding(.horizontal, 12)
-            .padding(.top, 10)
+            .padding(.top, floatingLyricStyle == .transparent ? 14 : 10)
             .padding(.bottom, 6)
             .background(alignment: .top) {
                 if floatingLyricStyle == .black {
@@ -1458,10 +1615,12 @@ struct ContentView: View {
                     ZStack(alignment: .top) {
                         if floatingLyricsAmbient {
                             LinearGradient(stops: [
-                                .init(color: .black, location: 0),
-                                .init(color: Color(nsColor: musicManager.avgColor.blended(withFraction: 0.7, of: .black) ?? .black).opacity(0.9), location: 0.18),
-                                .init(color: Color(nsColor: musicManager.avgColor).opacity(lyricGradientIntensity * 0.45), location: 0.4),
-                                .init(color: Color(nsColor: musicManager.avgColor).opacity(0.22 * lyricGradientIntensity), location: 0.7),
+                                // Transparent, not black: the panel's top edge
+                                // cannot create a horizontal band across the notch.
+                                .init(color: .clear, location: 0),
+                                .init(color: Color(nsColor: musicManager.avgColor).opacity(lyricGradientIntensity * 0.38), location: 0.12),
+                                .init(color: Color(nsColor: musicManager.avgColor).opacity(lyricGradientIntensity * 0.45), location: 0.2),
+                                .init(color: Color(nsColor: musicManager.avgColor).opacity(0.18 * lyricGradientIntensity), location: 0.65),
                                 .init(color: .clear, location: 1)
                             ], startPoint: .top, endPoint: .bottom)
                             .frame(width: floatingPanelWidth, height: lyricGradientDepth)
@@ -1469,6 +1628,14 @@ struct ContentView: View {
                                 TaperedLyricGlow(topWidth: ambientNotchWidth - 2 * cornerRadiusInsets.closed.top)
                                     .fill(.black)
                                     .blur(radius: 8)
+                            }
+                            .mask {
+                                LinearGradient(stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.18),
+                                    .init(color: .black, location: 0.82),
+                                    .init(color: .clear, location: 1)
+                                ], startPoint: .leading, endPoint: .trailing)
                             }
                         }
                     }
@@ -1481,23 +1648,21 @@ struct ContentView: View {
 
     @ViewBuilder
     func BoringFaceAnimation() -> some View {
-        HStack {
-            HStack {
-                Rectangle()
-                    .fill(.clear)
-                    .frame(
-                        width: max(0, vm.effectiveClosedNotchHeight - 12),
-                        height: max(0, vm.effectiveClosedNotchHeight - 12)
-                    )
-                Rectangle()
-                    .fill(.black)
-                    .frame(width: vm.closedNotchSize.width - 20)
-                MinimalFaceFeatures()
-            }
-        }.frame(
+        RestingCatEyes(
+            cameraGap: restingCatCameraGap,
             height: vm.effectiveClosedNotchHeight,
-            alignment: .center
+            isActive: !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup
         )
+    }
+
+    private var restingCatCameraGap: CGFloat {
+        let screen = vm.screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        guard let screen, screen.safeAreaInsets.top > 0 else { return 0 }
+        // Derive the protected gap from hardware, even when the user customizes notch size.
+        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+            return max(vm.closedNotchSize.width, screen.frame.width - left.width - right.width + 8)
+        }
+        return vm.closedNotchSize.width + 8
     }
 
     @ViewBuilder
@@ -1602,11 +1767,12 @@ struct ContentView: View {
 
     @ViewBuilder
     var dragDetector: some View {
-        if Defaults[.boringShelf] && vm.notchState == .closed {
+        if Defaults[.boringShelf] {
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], isTargeted: $vm.dragDetectorTargeting) { providers in
+            guard !shelfSelection.isDragging else { return false }
             vm.dropEvent = true
             ShelfStateViewModel.shared.load(providers)
             return true
@@ -1748,9 +1914,15 @@ struct FullScreenDropDelegate: DropDelegate {
 
 struct GeneralDropTargetDelegate: DropDelegate {
     @Binding var isTargeted: Bool
+    var onDrop: ([NSItemProvider]) -> Void
+    private let types = [UTType.fileURL, .url, .utf8PlainText, .plainText, .data]
+
+    func validateDrop(info: DropInfo) -> Bool {
+        Defaults[.boringShelf] && !ShelfSelectionModel.shared.isDragging && info.hasItemsConforming(to: types)
+    }
 
     func dropEntered(info: DropInfo) {
-        isTargeted = true
+        isTargeted = validateDrop(info: info)
     }
 
     func dropExited(info: DropInfo) {
@@ -1758,11 +1930,16 @@ struct GeneralDropTargetDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .cancel)
+        return DropProposal(operation: validateDrop(info: info) ? .copy : .cancel)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        return false
+        guard validateDrop(info: info) else { return false }
+        let providers = info.itemProviders(for: types)
+        guard !providers.isEmpty else { return false }
+        onDrop(providers)
+        isTargeted = false
+        return true
     }
 }
 

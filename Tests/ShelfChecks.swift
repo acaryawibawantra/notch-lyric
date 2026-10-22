@@ -31,6 +31,16 @@ func runShelfChecks() throws {
     precondition(selection.selectedItems(in: all).map(\.id) == [link.id, file.id])
     selection.ensureValidAnchor(in: [note])
     precondition(selection.selectedIDs.isEmpty)
+    selection.setVisibleItems([file, note, link])
+    precondition(selection.moveSelection(by: 1, in: all)?.id == file.id)
+    precondition(selection.moveSelection(by: 1, in: all)?.id == note.id)
+    precondition(selection.moveSelection(by: 1, in: all)?.id == link.id)
+    precondition(selection.moveSelection(by: 1, in: all)?.id == link.id)
+    precondition(selection.moveSelection(by: -1, in: all)?.id == note.id)
+    selection.setVisibleItems([file])
+    precondition(selection.moveSelection(by: -1, in: all)?.id == file.id)
+    selection.setVisibleItems([])
+    precondition(selection.moveSelection(by: 1, in: all) == nil && !selection.hasSelection)
     print("PASS: legacy shelf decoding, pin persistence, kind filters, visible-only range selection, stale selection cleanup")
 }
 try MainActor.assumeIsolated { try runShelfChecks() }

@@ -124,6 +124,24 @@ class CalendarService: CalendarServiceProviding {
         }
     }
 
+    /// Read-only: mirrors time-based display/audio alarms; never invents a lead time.
+    func agendaAlerts(from start: Date, to end: Date, calendars ids: [String]) async -> [CalendarAgendaAlert] {
+        guard hasAccess(to: .event), !ids.isEmpty else { return [] }
+        let calendars = store.calendars(for: .event).filter { ids.contains($0.calendarIdentifier) }
+        guard !calendars.isEmpty else { return [] }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: calendars)
+        return store.events(matching: predicate).flatMap { event -> [CalendarAgendaAlert] in
+            guard event.status != .canceled, event.currentUser?.participantStatus != .declined else { return [] }
+            return (event.alarms ?? []).compactMap { alarm in
+                guard alarm.proximity == .none, alarm.type == .display || alarm.type == .audio else { return nil }
+                let fire = CalendarAgendaAlert.alarmDate(start: event.startDate, absolute: alarm.absoluteDate, offset: alarm.relativeOffset)
+                let id = "\(event.calendar.calendarIdentifier)|\(event.calendarItemIdentifier)|\(event.startDate.timeIntervalSince1970)|\(fire.timeIntervalSince1970)"
+                return CalendarAgendaAlert(id: id, title: event.title ?? "Calendar event", start: event.startDate,
+                                           fire: fire, calendar: event.calendar.title, allDay: event.isAllDay)
+            }
+        }.sorted { $0.fire < $1.fire }
+    }
+
     func completeNativeReminder(_ id: String) async throws {
         guard hasAccess(to: .reminder), let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
             throw NSError(domain: "NotchLyric.Reminders", code: 1, userInfo: [NSLocalizedDescriptionKey: "Reminder access is unavailable. Check macOS Privacy & Security settings."])

@@ -198,6 +198,7 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func close() {
+        guard !anyDropZoneTargeting, !ShelfStateViewModel.shared.isLoading else { return }
         guard !FocusTimerModel.shared.isEditingGoal, !FocusTaskStore.shared.isEditing, !ClipboardHistoryStore.shared.isEditing,
               !ShelfSelectionModel.shared.isEditingSearch, !ShelfSelectionModel.shared.isPreviewing else { return }
         // Do not close while a share picker or sharing service is active

@@ -16,6 +16,10 @@ final class ShelfStateViewModel: ObservableObject {
     }
 
     @Published var isLoading: Bool = false
+    @Published private(set) var dropFeedback = ""
+    private var pendingDrops = 0
+    @Published private(set) var recentIDs: Set<UUID> = []
+    private var recentTask: Task<Void, Never>?
 
     var isEmpty: Bool { items.isEmpty }
 
@@ -40,7 +44,16 @@ final class ShelfStateViewModel: ObservableObject {
                 seen.insert(key)
             }
         }
+        let addedIDs = Set(merged.map(\.id)).subtracting(items.map(\.id))
         items = merged
+        if !addedIDs.isEmpty {
+            recentTask?.cancel()
+            recentIDs = addedIDs
+            recentTask = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                self?.recentIDs = []
+            }
+        }
     }
 
     func remove(_ item: ShelfItem) {
@@ -85,12 +98,20 @@ final class ShelfStateViewModel: ObservableObject {
 
     func load(_ providers: [NSItemProvider]) {
         guard !providers.isEmpty else { return }
+        pendingDrops += 1
         isLoading = true
         Task { [weak self] in
             let dropped = await ShelfDropService.items(from: providers)
             await MainActor.run {
-                self?.add(dropped)
-                self?.isLoading = false
+                guard let self else { return }
+                let before = self.items.count
+                self.add(dropped)
+                let added = self.items.count - before
+                self.dropFeedback = dropped.isEmpty ? "Could not add files. Check file access or try Add."
+                    : added == 0 ? "Already on your shelf. Originals stay in place."
+                    : "Added \(added) item(s)\(dropped.count < providers.count ? "; some could not be added" : ""). Originals stay in place."
+                self.pendingDrops -= 1
+                self.isLoading = self.pendingDrops > 0
             }
         }
     }

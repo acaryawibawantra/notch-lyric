@@ -15,6 +15,7 @@ struct ShelfItemView: View {
     let item: ShelfItem
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var selection = ShelfSelectionModel.shared
+    @ObservedObject private var shelf = ShelfStateViewModel.shared
     @StateObject private var viewModel: ShelfItemViewModel
     @EnvironmentObject private var quickLookService: QuickLookService
     @State private var showStack = false
@@ -62,6 +63,15 @@ struct ShelfItemView: View {
                         .background(.black.opacity(0.65), in: Circle())
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .allowsHitTesting(false).accessibilityLabel("Pinned")
+                }
+                if shelf.recentIDs.contains(item.id) {
+                    Text("New").font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(LinearGradient(colors: [.mint, .cyan], startPoint: .leading, endPoint: .trailing), in: Capsule())
+                        .padding(4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .allowsHitTesting(false).accessibilityLabel("Recently added")
                 }
             } else {
                 Color.clear
@@ -218,6 +228,7 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
     }
     
     final class DraggableClickView: NSView, NSDraggingSource {
+        override var acceptsFirstResponder: Bool { true }
         var item: ShelfItem!
         weak var viewModel: ShelfItemViewModel?
         var dragPreviewImage: NSImage?
@@ -234,6 +245,8 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
         }
         
         override func mouseDown(with event: NSEvent) {
+            window?.makeKey()
+            window?.makeFirstResponder(self)
             mouseDownEvent = event
             onClick?(event, self)
         }

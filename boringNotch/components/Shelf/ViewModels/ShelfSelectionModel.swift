@@ -56,6 +56,18 @@ final class ShelfSelectionModel: ObservableObject {
         lastAnchorID = item.id
     }
 
+    @discardableResult
+    func moveSelection(by step: Int, in items: [ShelfItem]) -> ShelfItem? {
+        let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let ordered = visibleOrder.map { $0.compactMap { byID[$0] } } ?? items
+        guard !ordered.isEmpty else { clear(); return nil }
+        let current = ordered.firstIndex { $0.id == lastAnchorID && selectedIDs.contains($0.id) }
+            ?? ordered.firstIndex { selectedIDs.contains($0.id) }
+        let next = current.map { min(ordered.count - 1, max(0, $0 + step)) } ?? (step < 0 ? ordered.count - 1 : 0)
+        selectSingle(ordered[next])
+        return ordered[next]
+    }
+
     func toggle(_ item: ShelfItem) {
         if selectedIDs.contains(item.id) {
             selectedIDs.remove(item.id)

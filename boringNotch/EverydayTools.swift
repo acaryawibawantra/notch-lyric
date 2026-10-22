@@ -756,7 +756,7 @@ struct WellnessReminderBanner: View {
                 if reduceMotion {
                     illustration(elapsed: 1, animated: false)
                 } else {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                    TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
                         illustration(elapsed: context.date.timeIntervalSince(startedAt), animated: true)
                     }
                 }
@@ -783,36 +783,78 @@ struct WellnessReminderBanner: View {
         .frame(minHeight: 104)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(reminder == .water ? "Water reminder" : "Eye break reminder")
+        .onChange(of: reminder) { startedAt = Date() }
     }
 
-    @ViewBuilder private func illustration(elapsed: TimeInterval, animated: Bool) -> some View {
-        if reminder == .water {
+    private func illustration(elapsed: TimeInterval, animated: Bool) -> some View {
+        WellnessCatMascot(isHydrating: reminder == .water, elapsed: elapsed, animated: animated)
+    }
+}
+
+/// Both previews and scheduled reminders share MORIS's palette and resting eyes.
+private struct WellnessCatMascot: View {
+    let isHydrating: Bool
+    let elapsed: TimeInterval
+    let animated: Bool
+    @Default(.catEyePalette) private var palette
+
+    var body: some View {
+        ZStack {
             ZStack {
-                WellnessGlassShape().fill(tint.opacity(0.07))
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    Rectangle().fill(LinearGradient(colors: [tint.opacity(0.8), tint.opacity(0.35)], startPoint: .top, endPoint: .bottom))
-                        .frame(height: animated ? 9 + 24 * min(1, elapsed / 5) : 24)
-                }.clipShape(WellnessGlassShape())
-                WellnessGlassShape().stroke(.white.opacity(0.9), lineWidth: 1.5)
-                RoundedRectangle(cornerRadius: 3).stroke(.white.opacity(0.8), lineWidth: 1.5)
-                    .frame(width: 17, height: 27).rotationEffect(.degrees(-35))
-                    .offset(x: -9, y: -27)
-                Capsule().fill(tint).frame(width: 2.5, height: 15)
-                    .rotationEffect(.degrees(-25)).offset(x: 1, y: -13)
-                    .opacity(animated ? 0.55 + 0.4 * sin(elapsed * 6) : 0.8)
-            }.frame(width: 27, height: 37).offset(y: 9)
-        } else {
-            let blink = animated && elapsed.truncatingRemainder(dividingBy: 3.2) > 3.04
-            HStack(spacing: 7) {
-                ForEach(0..<2) { _ in
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.9), lineWidth: 1.5)
-                        Capsule().fill(.white).frame(width: 6, height: 9)
-                            .offset(x: animated ? sin(elapsed * 1.5) * 3 : 0)
-                    }.frame(width: 18, height: 29).scaleEffect(x: 1, y: blink ? 0.12 : 1)
-                }
+                WellnessCatHead()
+                    .fill(LinearGradient(colors: palette.colors.map { $0.opacity(0.16) }, startPoint: .top, endPoint: .bottom))
+                WellnessCatHead().stroke(palette.colors[0].opacity(0.6), lineWidth: 1)
+                RestingCatEyes(cameraGap: 0, height: 30, isActive: animated)
+                    .scaleEffect(0.74).offset(y: 1)
+                Image(systemName: "triangle.fill")
+                    .resizable().scaledToFit().frame(width: 5, height: 4)
+                    .rotationEffect(.degrees(180)).foregroundStyle(palette.colors[0])
+                    .offset(y: 13)
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: 0))
+                    path.addQuadCurve(to: CGPoint(x: 6, y: 0), control: CGPoint(x: 3, y: 5))
+                    path.addQuadCurve(to: CGPoint(x: 12, y: 0), control: CGPoint(x: 9, y: 5))
+                }.stroke(palette.colors[0].opacity(0.65), lineWidth: 1)
+                    .frame(width: 12, height: 4).offset(y: 19)
             }
+            .frame(width: 58, height: 52)
+            .rotationEffect(.degrees(animated && isHydrating ? sin(elapsed * 1.8) * 3 : 0))
+            .offset(x: isHydrating ? -5 : 0, y: -3)
+
+            if isHydrating {
+                ZStack(alignment: .bottom) {
+                    WellnessGlassShape().fill(.black)
+                    Rectangle()
+                        .fill(LinearGradient(colors: [.cyan.opacity(0.9), .mint.opacity(0.6)], startPoint: .top, endPoint: .bottom))
+                        .frame(height: animated ? 7 + 9 * min(1, max(0, elapsed / 4)) : 13)
+                        .clipShape(WellnessGlassShape())
+                    WellnessGlassShape().stroke(.white.opacity(0.8), lineWidth: 1)
+                }
+                .frame(width: 18, height: 25)
+                .rotationEffect(.degrees(-8)).offset(x: 23, y: 20)
+            }
+        }
+        .frame(width: 76, height: 76)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct WellnessCatHead: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            let w = rect.width
+            let h = rect.height
+            path.move(to: CGPoint(x: w * 0.08, y: h * 0.42))
+            path.addLine(to: CGPoint(x: w * 0.08, y: h * 0.02))
+            path.addQuadCurve(to: CGPoint(x: w * 0.32, y: h * 0.22), control: CGPoint(x: w * 0.19, y: h * 0.04))
+            path.addQuadCurve(to: CGPoint(x: w * 0.68, y: h * 0.22), control: CGPoint(x: w * 0.5, y: h * 0.14))
+            path.addQuadCurve(to: CGPoint(x: w * 0.92, y: h * 0.02), control: CGPoint(x: w * 0.81, y: h * 0.04))
+            path.addLine(to: CGPoint(x: w * 0.92, y: h * 0.42))
+            path.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.98),
+                          control1: CGPoint(x: w * 1.06, y: h * 0.83), control2: CGPoint(x: w * 0.8, y: h * 0.98))
+            path.addCurve(to: CGPoint(x: w * 0.08, y: h * 0.42),
+                          control1: CGPoint(x: w * 0.2, y: h * 0.98), control2: CGPoint(x: -w * 0.06, y: h * 0.83))
+            path.closeSubpath()
         }
     }
 }

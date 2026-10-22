@@ -220,14 +220,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleDragEntersNotchRegion(onScreen screen: NSScreen) {
+        guard Defaults[.boringShelf], !ShelfSelectionModel.shared.isDragging else { return }
         guard let uuid = screen.displayUUID else { return }
         
         if Defaults[.showOnAllDisplays], let viewModel = viewModels[uuid] {
+            coordinator.currentView = .shelf
             viewModel.open()
-            coordinator.currentView = .shelf
         } else if !Defaults[.showOnAllDisplays], let windowScreen = window?.screen, screen == windowScreen {
-            vm.open()
             coordinator.currentView = .shelf
+            vm.open()
         }
     }
 

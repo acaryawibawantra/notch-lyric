@@ -19,8 +19,11 @@ let windowSize: CGSize = .init(width: max(timeToolsSize.width, openNotchSize.wid
 
 func expandedPanelSize(for view: NotchViews) -> CGSize {
     switch view {
+    case .home where MediaCompanion.current != .none: timeToolsSize
+    case .home where Defaults[.enableLyrics]: CGSize(width: openNotchSize.width, height: Defaults[.lyricDisplayMode] == .karaoke ? 276 : 256)
+    case .home: CGSize(width: openNotchSize.width, height: 236)
     case .focus: timeToolsSize
-    case .shelf: CGSize(width: timeToolsSize.width, height: 300)
+    case .shelf: CGSize(width: timeToolsSize.width, height: 310)
     case .everyday: CGSize(width: openNotchSize.width, height: 300)
     default: openNotchSize
     }

@@ -63,7 +63,10 @@ struct ShelfDropService {
     }
     
     private static func createBookmark(for url: URL) -> Data? {
-        return (try? Bookmark(url: url))?.data
+        guard url.isFileURL else { return nil }
+        return url.accessSecurityScopedResource { accessibleURL in
+            (try? Bookmark(url: accessibleURL))?.data
+        }
     }
 }
 

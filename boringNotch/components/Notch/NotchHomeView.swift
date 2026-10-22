@@ -17,9 +17,11 @@ struct MusicPlayerView: View {
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
-        HStack {
-            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
-            MusicControlsView().drawingGroup().compositingGroup()
+        HStack(alignment: .top) {
+            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace)
+                .frame(maxWidth: 120, maxHeight: 120)
+                .padding(.all, 5)
+            MusicControlsView()
         }
     }
 }
@@ -110,6 +112,7 @@ struct AlbumArtView: View {
 }
 
 struct MusicControlsView: View {
+    var hidesInlineLyrics = false
     @ObservedObject var musicManager = MusicManager.shared
         @EnvironmentObject var vm: BoringViewModel
         @ObservedObject var webcamManager = WebcamManager.shared
@@ -122,25 +125,24 @@ struct MusicControlsView: View {
     @Default(.lyricTextSize) private var lyricTextSize
     @Default(.animateLyricTransitions) private var animateLyricTransitions
     @Default(.lyricDisplayMode) private var lyricDisplayMode
+    @Default(.expandedMediaLyrics) private var expandedMediaLyrics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading) {
-            songInfoAndSlider
-            slotToolbar
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-
-    private var songInfoAndSlider: some View {
         GeometryReader { geo in
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 10) {
                 songInfo(width: geo.size.width)
+                if !hidesInlineLyrics { Spacer(minLength: 0) }
                 musicSlider
+                slotToolbar.frame(height: 36)
             }
         }
-        .padding(.top, 10)
+        // Insets belong outside GeometryReader: padding inside its VStack added
+        // height beyond the proposed bounds and pushed transport into the chin.
+        .padding(.top, 8)
         .padding(.leading, 5)
+        .padding(.bottom, 12)
+        .buttonStyle(PlainButtonStyle())
     }
 
     private func songInfo(width: CGFloat) -> some View {
@@ -148,8 +150,20 @@ struct MusicControlsView: View {
             HStack(spacing: 6) {
                 MarqueeText(
                     $musicManager.songTitle, font: .headline, nsFont: .headline, textColor: .white,
-                    frameWidth: max(0, width - (Defaults[.enableLyrics] ? 30 : 0)))
+                    frameWidth: max(0, width - (Defaults[.enableLyrics] ? (hidesInlineLyrics ? 30 : 60) : 0)))
                 if Defaults[.enableLyrics] {
+                    Button {
+                        let closing = MediaCompanion.current == .lyrics
+                        Defaults[.mediaCompanion] = closing ? .none : .lyrics
+                        expandedMediaLyrics = !closing
+                    } label: {
+                        Image(systemName: MediaCompanion.current == .lyrics ? "rectangle.compress.vertical" : "list.bullet")
+                            .font(.system(size: 12))
+                            .frame(width: 24, height: 24)
+                    }
+                    .help(MediaCompanion.current == .lyrics ? "Return to compact player" : "Show full lyrics alongside player")
+                    .accessibilityLabel(MediaCompanion.current == .lyrics ? "Close full lyrics" : "Show full lyrics")
+                    if !hidesInlineLyrics {
                     Button {
                         lyricDisplayMode = lyricDisplayMode == .karaoke ? .compact : .karaoke
                     } label: {
@@ -160,6 +174,7 @@ struct MusicControlsView: View {
                     }
                     .help(lyricDisplayMode == .karaoke ? "Switch to compact lyrics" : "Show detailed lyrics")
                     .accessibilityLabel("Toggle detailed lyrics")
+                    }
                 }
             }
             MarqueeText(
@@ -172,7 +187,7 @@ struct MusicControlsView: View {
                 frameWidth: width
             )
             .fontWeight(.medium)
-            if Defaults[.enableLyrics] {
+            if Defaults[.enableLyrics] && !hidesInlineLyrics {
                 lyricsView(width: width)
             }
         }
@@ -280,14 +295,8 @@ struct MusicControlsView: View {
             MusicControlButton.maxSlotCount
         )
         let padded = slotConfig.padded(to: sanitizedLimit, filler: .none)
-        let result = Array(padded.prefix(sanitizedLimit))
-        // If calendar and camera are both visible alongside music, hide the edge slots
-        let shouldHideEdges = Defaults[.showCalendar] && Defaults[.showMirror] && webcamManager.cameraAvailable && vm.isCameraExpanded
-        if shouldHideEdges && result.count >= 5 {
-            return Array(result.dropFirst().dropLast())
-        }
-
-        return result
+        // Companion and camera never occupy a third column, so keep configured actions.
+        return Array(padded.prefix(sanitizedLimit))
     }
 
     @ViewBuilder
@@ -471,12 +480,55 @@ struct VolumeControlView: View {
 
 // MARK: - Main View
 
+/// Legacy settings remain untouched until the user explicitly chooses a companion.
+enum MediaCompanion: String, CaseIterable, Defaults.Serializable {
+    case legacy, none, calendar, reminders, timer, focus, lyrics
+
+    static var current: Self {
+        let saved = Defaults[.mediaCompanion]
+        guard saved == .legacy else { return saved }
+        if Defaults[.expandedMediaLyrics] && Defaults[.enableLyrics] { return .lyrics }
+        return Defaults[.showCalendar] ? .calendar : .none
+    }
+
+    var title: String {
+        switch self {
+        case .legacy, .none: "Close split"
+        case .calendar: "Calendar"
+        case .reminders: "To-do"
+        case .timer: "Timer"
+        case .focus: "Focus"
+        case .lyrics: "Lyrics"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .legacy, .none: "xmark"
+        case .calendar: "calendar"
+        case .reminders: "checklist"
+        case .timer: "timer"
+        case .focus: "scope"
+        case .lyrics: "text.alignleft"
+        }
+    }
+}
+
 struct NotchHomeView: View {
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var webcamManager = WebcamManager.shared
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
+    @ObservedObject private var calendar = CalendarManager.shared
     let albumArtNamespace: Namespace.ID
+    @Default(.expandedMediaLyrics) private var expandedMediaLyrics
+    @Default(.enableLyrics) private var enableLyrics
+    @Default(.lyricDisplayMode) private var lyricDisplayMode
+    @Default(.mediaCompanion) private var companion
+    @Default(.showCalendar) private var showCalendar
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var selectedCompanion: MediaCompanion { MediaCompanion.current }
 
     var body: some View {
         Group {
@@ -486,6 +538,16 @@ struct NotchHomeView: View {
         }
         // simplified: use a straightforward opacity transition
         .transition(.opacity)
+        .onChange(of: expandedMediaLyrics) { updateMediaSize() }
+        .onChange(of: enableLyrics) { updateMediaSize() }
+        .onChange(of: lyricDisplayMode) { updateMediaSize() }
+        .onChange(of: companion) { updateMediaSize() }
+        .onChange(of: showCalendar) { updateMediaSize() }
+    }
+
+    private func updateMediaSize() {
+        guard vm.notchState == .open, coordinator.currentView == .home else { return }
+        vm.notchSize = expandedPanelSize(for: .home)
     }
 
     private var shouldShowCamera: Bool {
@@ -493,20 +555,33 @@ struct NotchHomeView: View {
     }
 
     private var mainContent: some View {
-        HStack(alignment: .top, spacing: (shouldShowCamera && Defaults[.showCalendar]) ? 10 : 15) {
+        VStack(spacing: 8) {
+            companionShortcuts
+        if selectedCompanion == .lyrics {
+            HStack(spacing: 24) {
+                VStack(spacing: 8) {
+                    AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace)
+                        .frame(width: 56, height: 56)
+                    MusicControlsView(hidesInlineLyrics: true)
+                        .frame(height: 148)
+                }
+                .frame(width: 285)
+                FullMediaLyricsView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+        HStack(alignment: .top, spacing: 20) {
             MusicPlayerView(albumArtNamespace: albumArtNamespace)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if Defaults[.showCalendar] {
-                CalendarView()
-                    .frame(width: shouldShowCamera ? 170 : 215)
-                    .onHover { isHovering in
-                        vm.isHoveringCalendar = isHovering
-                    }
-                    .environmentObject(vm)
+            if selectedCompanion != .none {
+                companionContent
+                    .frame(width: 235, alignment: .topLeading)
+                    .frame(maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             }
 
-            if shouldShowCamera {
+            if shouldShowCamera && selectedCompanion == .none {
                 CameraPreviewView(webcamManager: webcamManager)
                     .scaledToFit()
                     .opacity(vm.notchState == .closed ? 0 : 1)
@@ -514,8 +589,306 @@ struct NotchHomeView: View {
                     .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.76, blendDuration: 0), value: shouldShowCamera)
             }
         }
+        }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedCompanion)
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
         .blur(radius: vm.notchState == .closed ? 30 : 0)
+    }
+
+    private var companionShortcuts: some View {
+        HStack(spacing: 4) {
+            Spacer(minLength: 0)
+            ForEach([MediaCompanion.calendar, .reminders, .timer, .focus, .lyrics], id: \.self) { panel in
+                Button {
+                    companion = panel
+                    expandedMediaLyrics = panel == .lyrics
+                    if panel == .lyrics { enableLyrics = true }
+                } label: {
+                    Image(systemName: panel.symbol)
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 27, height: 25)
+                        .foregroundStyle(selectedCompanion == panel ? .primary : .secondary)
+                        .background(selectedCompanion == panel ? Color.white.opacity(0.12) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .help("Show \(panel.title) beside Media")
+                .accessibilityLabel("Show \(panel.title) beside Media")
+                .accessibilityAddTraits(selectedCompanion == panel ? [.isSelected] : [])
+            }
+            if selectedCompanion != .none {
+                Divider().frame(height: 12).padding(.horizontal, 3)
+                Button {
+                    companion = .none
+                    expandedMediaLyrics = false
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .medium))
+                        .frame(width: 25, height: 25)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Close split · music and timers keep running")
+                .accessibilityLabel("Close split")
+            }
+        }
+        .frame(height: 25)
+    }
+
+    @ViewBuilder private var companionContent: some View {
+        switch selectedCompanion {
+        case .calendar:
+            Group {
+                if calendar.calendarAuthorizationStatus == .fullAccess {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Calendar", systemImage: "calendar").font(.headline)
+                        CalendarView()
+                            .onHover { vm.isHoveringCalendar = $0 }
+                    }
+                } else {
+                    TodayActivityView()
+                }
+            }
+            .onDisappear { vm.isHoveringCalendar = false }
+            .task { await calendar.reloadCalendarAndReminderLists() }
+        case .reminders: FocusTaskList()
+        case .timer: MediaTimerCompanion()
+        case .focus: MediaFocusCompanion()
+        case .lyrics: FullMediaLyricsView()
+        case .none, .legacy: EmptyView()
+        }
+    }
+}
+
+private struct MediaTimerCompanion: View {
+    @ObservedObject private var clock = UtilityClockModel.shared
+    @Default(.toolsAccent) private var accent
+
+    private var progress: Double {
+        clock.timerDone ? 1 : clock.timerVisible ? 1 - Double(clock.remaining) / Double(max(1, clock.selectedSeconds)) : 0
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Label("Timer", systemImage: "timer").font(.headline)
+                Spacer()
+                Text(clock.timerDone ? "Completed" : clock.timerRunning ? "Running" : clock.timerVisible ? "Paused" : "Ready")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(clock.timerDone ? "Done" : UtilityClockModel.formatted(clock.timerVisible ? clock.remaining : clock.selectedSeconds))
+                .font(.system(size: 38, weight: .medium, design: .rounded)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity)
+            ProgressView(value: min(1, max(0, progress))).tint(accent.color)
+                .accessibilityLabel("Timer progress")
+            if !clock.timerVisible || clock.timerDone {
+                HStack(spacing: 6) {
+                    ForEach([5, 15, 25], id: \.self) { minutes in
+                        Button("\(minutes)m") { clock.minutes = minutes }
+                            .frame(maxWidth: .infinity)
+                            .toolButton(compact: true)
+                    }
+                }
+                Stepper("\(clock.minutes) min", value: $clock.minutes, in: 1...120).font(.caption)
+            }
+            HStack {
+                Button(clock.timerRunning ? "Pause" : clock.timerVisible && !clock.timerDone ? "Resume" : "Start",
+                       systemImage: clock.timerRunning ? "pause.fill" : "play.fill") { clock.toggleTimer() }
+                    .toolButton(prominent: true, compact: true)
+                Button("Reset") { clock.resetTimer() }.toolButton(compact: true)
+                    .disabled(!clock.timerVisible)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                Label("Stopwatch", systemImage: "stopwatch").font(.caption2)
+                Spacer(minLength: 0)
+                Text(UtilityClockModel.formatted(clock.stopwatchSeconds)).font(.caption.monospacedDigit())
+                Button {
+                    clock.toggleStopwatch()
+                } label: {
+                    Image(systemName: clock.stopwatchRunning ? "pause.fill" : "play.fill")
+                        .frame(width: 24, height: 24)
+                }.buttonStyle(.plain)
+                    .help(clock.stopwatchRunning ? "Pause stopwatch" : "Start or resume stopwatch")
+                    .accessibilityLabel(clock.stopwatchRunning ? "Pause stopwatch" : "Start or resume stopwatch")
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct MediaFocusCompanion: View {
+    @ObservedObject private var focus = FocusTimerModel.shared
+    @Default(.toolsAccent) private var accent
+    @Default(.mediaCompanion) private var companion
+
+    private var progress: Double {
+        focus.isFinished ? 1 : focus.isVisible ? 1 - Double(focus.remainingSeconds) / Double(max(1, focus.sessionMinutes * 60)) : 0
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Label("Focus", systemImage: "scope").font(.headline)
+                Spacer()
+                Text(focus.isFinished ? "Completed" : focus.isRunning ? "Running" : focus.isVisible ? "Paused" : "Ready")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(focus.goal.isEmpty ? "Choose a task in To-do, or start a focus session." : focus.goal)
+                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .center)
+            Text(focus.isFinished ? "Done" : UtilityClockModel.formatted(focus.isVisible ? focus.remainingSeconds : focus.durationMinutes * 60))
+                .font(.system(size: 38, weight: .medium, design: .rounded)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity)
+            ProgressView(value: min(1, max(0, progress))).tint(accent.color)
+                .accessibilityLabel("Focus session progress")
+            if !focus.isVisible || focus.isFinished {
+                Stepper("\(focus.durationMinutes) min", value: $focus.durationMinutes, in: 1...120).font(.caption)
+            }
+            HStack {
+                Button(focus.isRunning ? "Pause" : focus.isFinished ? "Start again" : "Start",
+                       systemImage: focus.isRunning ? "pause.fill" : "play.fill") {
+                    if focus.isRunning { focus.pause() } else { focus.start() }
+                }.toolButton(prominent: true, compact: true)
+                Button("Reset") { focus.reset() }.toolButton(compact: true)
+                    .disabled(!focus.isVisible)
+            }
+            Spacer(minLength: 0)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Today").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(focus.completedSessions) sessions · \(focus.focusedMinutesToday) min")
+                        .font(.caption2.weight(.medium)).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button { companion = .reminders } label: {
+                    Image(systemName: "checklist").frame(width: 26, height: 26)
+                }.buttonStyle(.plain).help("Choose a task from Apple Reminders")
+                    .accessibilityLabel("Choose a task from Apple Reminders")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// Full lyrics are opt-in: compact player and floating notch lyrics stay unchanged.
+private struct FullMediaLyricsView: View {
+    @ObservedObject private var music = MusicManager.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Default(.animateLyricTransitions) private var animateLyricTransitions
+    @State private var followsPlayback = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Lyrics", systemImage: "text.alignleft")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !music.syncedLyrics.isEmpty && !music.isFetchingLyrics {
+                    Button {
+                        followsPlayback.toggle()
+                    } label: {
+                        Label(followsPlayback ? "Following" : "Follow", systemImage: followsPlayback ? "location.fill" : "location")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(followsPlayback ? .white : .gray)
+                    .help("Turn off Follow to browse lyrics freely")
+                    .accessibilityAddTraits(followsPlayback ? [.isSelected] : [])
+                }
+            }
+            if music.isFetchingLyrics {
+                placeholder("Loading lyrics…", symbol: "ellipsis")
+            } else if !music.syncedLyrics.isEmpty {
+                syncedLyrics
+                    .id(music.songTitle + "\n" + music.artistName)
+            } else if !music.currentLyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ScrollView {
+                    Text(music.currentLyrics)
+                        .font(.system(size: 16, weight: .medium))
+                        .lineSpacing(7)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 16)
+                }
+                .scrollIndicators(.hidden)
+            } else {
+                placeholder("Lyrics aren’t available for this song", symbol: "text.bubble")
+            }
+        }
+        .onChange(of: music.songTitle) { followsPlayback = true }
+    }
+
+    private var syncedLyrics: some View {
+        TimelineView(.animation(minimumInterval: 0.25, paused: !music.isPlaying)) { timeline in
+            let elapsed = music.estimatedPlaybackPosition(at: timeline.date)
+            // Use timestamp indices, not lyric text: repeated chorus lines remain distinct.
+            let active = music.syncedLyrics.lastIndex(where: { $0.time <= elapsed }) ?? -1
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(music.syncedLyrics.indices, id: \.self) { index in
+                            let line = music.syncedLyrics[index]
+                            Button {
+                                music.seek(to: line.time)
+                            } label: {
+                                Text(line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "♪" : line.text)
+                                    .font(.system(size: 17, weight: index == active ? .semibold : .medium))
+                                    .foregroundStyle(index == active ? .white : .white.opacity(0.4))
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .id(index)
+                            .help("Play from this line")
+                            .accessibilityLabel(line.text.isEmpty ? "Instrumental" : line.text)
+                            .accessibilityHint("Play from this lyric")
+                            .accessibilityAddTraits(index == active ? [.isSelected] : [])
+                        }
+                    }
+                    .padding(.vertical, 50)
+                    .padding(.horizontal, 2)
+                }
+                .scrollIndicators(.hidden)
+                .mask {
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.12),
+                        .init(color: .black, location: 0.88),
+                        .init(color: .clear, location: 1)
+                    ], startPoint: .top, endPoint: .bottom)
+                }
+                .onAppear { proxy.scrollTo(max(0, active), anchor: .center) }
+                .onChange(of: active) {
+                    guard followsPlayback else { return }
+                    withAnimation(!reduceMotion && animateLyricTransitions ? .easeInOut(duration: 0.3) : nil) {
+                        proxy.scrollTo(max(0, active), anchor: .center)
+                    }
+                }
+                .onChange(of: followsPlayback) {
+                    if followsPlayback { proxy.scrollTo(max(0, active), anchor: .center) }
+                }
+            }
+        }
+    }
+
+    private func placeholder(_ title: String, symbol: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 24, weight: .light))
+            Text(title).font(.system(size: 12)).multilineTextAlignment(.center)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

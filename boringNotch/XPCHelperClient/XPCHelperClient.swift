@@ -96,6 +96,14 @@ final class XPCHelperClient: NSObject {
     }
     
     // MARK: - Accessibility
+    nonisolated func callActivitySnapshot() async -> String? {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.callActivitySnapshot { value in continuation.resume(returning: value) }
+            }
+        } catch { return nil }
+    }
     nonisolated func postEventAccess(prompt: Bool = false) async -> Bool {
         do {
             let service = await MainActor.run { ensureRemoteService() }

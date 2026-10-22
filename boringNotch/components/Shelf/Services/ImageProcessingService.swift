@@ -248,15 +248,12 @@ final class ImageProcessingService {
         
         let pdfDocument = PDFDocument()
         
-        for (index, url) in imageURLs.enumerated() {
-            guard let image = NSImage(contentsOf: url) else {
-                continue
+        for url in imageURLs {
+            guard let image = NSImage(contentsOf: url), let page = PDFPage(image: image) else {
+                // Never silently omit an unreadable selected image from a batch.
+                throw ImageProcessingError.invalidImage
             }
-            
-            let pdfPage = PDFPage(image: image)
-            if let page = pdfPage {
-                pdfDocument.insert(page, at: index)
-            }
+            pdfDocument.insert(page, at: pdfDocument.pageCount)
         }
         
         guard pdfDocument.pageCount > 0 else {

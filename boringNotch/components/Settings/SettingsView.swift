@@ -366,6 +366,7 @@ struct GeneralSettings: View {
 }
 
 struct Charge: View {
+    @Default(.showPowerStatusNotifications) private var powerNotifications
     var body: some View {
         Form {
             Section {
@@ -375,6 +376,11 @@ struct Charge: View {
                 Defaults.Toggle(key: .showPowerStatusNotifications) {
                     Text("Show power status notifications")
                 }
+                Button("Preview power notification") {
+                    BatteryStatusViewModel.shared.previewPowerNotification()
+                }
+                .disabled(!powerNotifications)
+                .help("Show the current battery state in the notch")
             } header: {
                 Text("General")
             }
@@ -820,6 +826,9 @@ struct CalendarSettings: View {
 
     var body: some View {
         Form {
+            Section("MORIS Calendar alerts") {
+                CalendarAgendaPreferences()
+            }
             Defaults.Toggle(key: .showCalendar) {
                 Text("Show calendar")
             }
@@ -1491,13 +1500,24 @@ struct Appearance: View {
                     Text("Square")
                         .tag(MirrorShapeEnum.rectangle)
                 }
-                Defaults.Toggle(key: .showNotHumanFace) {
-                    Text("Show cool face animation while inactive")
-                }
             } header: {
                 HStack {
                     Text("Additional features")
                 }
+            }
+            Section("Cat mascot") {
+                CatEyeAppearanceSettings()
+            }
+            Section("Device connections") {
+                Defaults.Toggle(key: .deviceConnectionPopups) {
+                    Text("Show accessory connection popups")
+                }
+                Button("Preview connection popup") { DeviceConnectionStore.shared.preview() }
+                Text("Detects supported Bluetooth accessories and mounted external volumes. Enable Bluetooth access if macOS asks. Popups appear for 4 seconds while the notch is closed.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("MORIS Calls · Experimental") {
+                CallActivityPreferences()
             }
         }
         .accentColor(.effectiveAccent)
