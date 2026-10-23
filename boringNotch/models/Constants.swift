@@ -192,6 +192,7 @@ extension Defaults.Keys {
     static let calendarAgendaPopups = Key<Bool>("calendarAgendaPopups", default: false)
     static let experimentalCallDetection = Key<Bool>("experimentalCallDetection", default: false)
     static let catEyePalette = Key<CatEyePalette>("catEyePalette", default: .pearl)
+    static let catEyeStyle = Key<CatEyeStyle>("catEyeStyle", default: .round)
     static let expandedMediaLyrics = Key<Bool>("expandedMediaLyrics", default: false)
     static let mediaCompanion = Key<MediaCompanion>("mediaCompanion", default: .legacy)
     static let tileShowLabels = Key<Bool>("tileShowLabels", default: false)
@@ -208,6 +209,7 @@ extension Defaults.Keys {
     
     // MARK: Gestures
     static let enableGestures = Key<Bool>("enableGestures", default: true)
+    static let swipeToSwitchTabs = Key<Bool>("swipeToSwitchTabs", default: true)
     static let closeGestureEnabled = Key<Bool>("closeGestureEnabled", default: true)
     static let gestureSensitivity = Key<CGFloat>("gestureSensitivity", default: 200.0)
     

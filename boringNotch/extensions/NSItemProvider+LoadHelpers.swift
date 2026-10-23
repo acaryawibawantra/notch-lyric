@@ -10,7 +10,33 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
+/// Providers can fail to call their completion handler. Resume exactly once,
+/// including when a late callback races the deadline.
+private final class ProviderItemGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<NSSecureCoding?, Never>?
+    init(_ continuation: CheckedContinuation<NSSecureCoding?, Never>) { self.continuation = continuation }
+    func finish(_ item: NSSecureCoding?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: item)
+    }
+}
+
 extension NSItemProvider {
+    func boundedItem(typeIdentifier: String, timeout: TimeInterval = 8) async -> NSSecureCoding? {
+        await withCheckedContinuation { continuation in
+            let gate = ProviderItemGate(continuation)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + max(0.01, timeout)) {
+                gate.finish(nil)
+            }
+            loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
+                gate.finish(error == nil ? item : nil)
+            }
+        }
+    }
     
     func extractItem() async -> URL? {
         return await loadFileURL(typeIdentifier: UTType.item.identifier)
@@ -27,32 +53,15 @@ extension NSItemProvider {
     
     /// Loads raw data for the given type identifier
     func loadData() async -> Data? {
-        NSLog(String(describing: self.registeredTypeIdentifiers))
         guard hasItemConformingToTypeIdentifier(UTType.data.identifier) else { return nil }
-        return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
-            loadItem(forTypeIdentifier: UTType.data.identifier, options: nil) { item, error in
-                if let error = error {
-                    print("Error loading data for type \(UTType.data.identifier): \(error.localizedDescription)")
-                    cont.resume(returning: nil)
-                    return
-                }
-                if let url = item as? URL, let data = try? Data(contentsOf: url) {
-                    if !url.absoluteString.contains("com.apple.SwiftUI.filePromises") {
-                        cont.resume(returning: nil)
-                        return
-                    }
-                    self.suggestedName = self.suggestedName ?? url.lastPathComponent
-                    
-                    // The provider owns this file. Read a copy, never delete its source.
-                    
-                    cont.resume(returning: data)
-                } else if let data = item as? Data {
-                    cont.resume(returning: data)
-                } else {
-                    cont.resume(returning: nil)
-                }
-            }
+        guard let item = await boundedItem(typeIdentifier: UTType.data.identifier) else { return nil }
+        if let url = item as? URL {
+            guard url.absoluteString.contains("com.apple.SwiftUI.filePromises") else { return nil }
+            suggestedName = suggestedName ?? url.lastPathComponent
+            // Read a copy, never delete a file owned by the provider.
+            return try? Data(contentsOf: url)
         }
+        return item as? Data
     }
 
     /// Attempts to extract a URL (web link) from the provider
@@ -82,99 +91,36 @@ extension NSItemProvider {
 
     /// Loads a file URL from the provider for the given type identifier.
     func loadFileURL(typeIdentifier: String) async -> URL? {
-        await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
-            self.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
-                if let error = error {
-                    print("❌ Error loading item for type \(typeIdentifier): \(error.localizedDescription)")
-                    cont.resume(returning: nil)
-                    return
-                }
-                var resolvedURL: URL?
-                if let url = item as? URL {
-                    // Direct URL provided
-                    resolvedURL = url
-                } else if let data = item as? Data {
-                    // Some providers hand out a UTF-8 file URL string, others a bookmark. Prefer parsing string first.
-                    if let string = String(data: data, encoding: .utf8) {
-                        if string.hasPrefix("/") {
-                            // Plain file system path
-                            resolvedURL = URL(fileURLWithPath: string)
-                        } else if let url = URL(string: string), url.isFileURL {
-                            resolvedURL = url
-                        }
-                    }
-                    if resolvedURL == nil {
-                        // Fallback: try treating the data as a bookmark
-                        let bookmark = Bookmark(data: data)
-                        resolvedURL = bookmark.resolveURL()
-                    }
-                } else if let string = item as? String {
-                    if string.hasPrefix("/") {
-                        resolvedURL = URL(fileURLWithPath: string)
-                    } else if let url = URL(string: string), url.isFileURL {
-                        resolvedURL = url
-                    }
-                }
-                cont.resume(returning: resolvedURL)
+        guard let item = await boundedItem(typeIdentifier: typeIdentifier) else { return nil }
+        var resolvedURL: URL?
+        if let url = item as? URL {
+            resolvedURL = url
+        } else if let data = item as? Data {
+            // Prefer the UTF-8 file URL/path before attempting bookmark decoding.
+            if let string = String(data: data, encoding: .utf8) {
+                if string.hasPrefix("/") { resolvedURL = URL(fileURLWithPath: string) }
+                else if let url = URL(string: string), url.isFileURL { resolvedURL = url }
             }
+            if resolvedURL == nil { resolvedURL = Bookmark(data: data).resolveURL() }
+        } else if let string = item as? String {
+            if string.hasPrefix("/") { resolvedURL = URL(fileURLWithPath: string) }
+            else if let url = URL(string: string), url.isFileURL { resolvedURL = url }
         }
+        return resolvedURL?.isFileURL == true ? resolvedURL : nil
     }
 
     /// Loads a URL from the provider for the given type identifier.
     func loadURL(typeIdentifier: String) async -> URL? {
-        await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
-            self.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
-                if error != nil {
-                    cont.resume(returning: nil)
-                    return
-                }
-
-                if let url = item as? URL {
-                    cont.resume(returning: url)
-                } else if let data = item as? Data {
-                    if let string = String(data: data, encoding: .utf8) {
-                        if let url = URL(string: string) {
-                            cont.resume(returning: url)
-                            return
-                        } else if string.hasPrefix("/") {
-                            cont.resume(returning: URL(fileURLWithPath: string))
-                            return
-                        }
-                    }
-                    cont.resume(returning: nil)
-                } else if let string = item as? String {
-                    if let url = URL(string: string) {
-                        cont.resume(returning: url)
-                    } else if string.hasPrefix("/") {
-                        cont.resume(returning: URL(fileURLWithPath: string))
-                    } else {
-                        cont.resume(returning: nil)
-                    }
-                } else {
-                    cont.resume(returning: nil)
-                }
-            }
-        }
+        guard let item = await boundedItem(typeIdentifier: typeIdentifier) else { return nil }
+        if let url = item as? URL { return url }
+        let string = (item as? String) ?? (item as? Data).flatMap { String(data: $0, encoding: .utf8) }
+        guard let string else { return nil }
+        return string.hasPrefix("/") ? URL(fileURLWithPath: string) : URL(string: string)
     }
 
     /// Loads text from the provider for the given type identifier.
     func loadText(typeIdentifier: String) async -> String? {
-        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
-            self.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
-                if error != nil {
-                    cont.resume(returning: nil)
-                    return
-                }
-
-                if let string = item as? String {
-                    cont.resume(returning: string)
-                } else if let data = item as? Data,
-                          let string = String(data: data, encoding: .utf8) {
-                    cont.resume(returning: string)
-                } else {
-                    cont.resume(returning: nil)
-                }
-            }
-        }
+        guard let item = await boundedItem(typeIdentifier: typeIdentifier) else { return nil }
+        return (item as? String) ?? (item as? Data).flatMap { String(data: $0, encoding: .utf8) }
     }
 }

@@ -303,8 +303,11 @@ struct GeneralSettings: View {
             }
                 .disabled(!openNotchOnHover)
             if enableGestures {
-                Toggle("Change media with horizontal gestures", isOn: .constant(false))
-                    .disabled(true)
+                Defaults.Toggle(key: .swipeToSwitchTabs) {
+                    Text("Swipe horizontally to switch tabs")
+                }
+                Text("With the pointer over the open notch, swipe left for the next tab or right for the previous tab. Vertical scrolling stays unchanged.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Defaults.Toggle(key: .closeGestureEnabled) {
                     Text("Close gesture")
                 }

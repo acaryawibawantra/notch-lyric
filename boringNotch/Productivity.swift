@@ -3,6 +3,11 @@ import Combine
 import IOKit.pwr_mgt
 import SwiftUI
 
+/// Parked until pairing and integrations are ready for general users.
+enum MorisTaskFeature {
+    static let isEnabled = false
+}
+
 enum KeepAwakePower {
     static func create(seconds: TimeInterval?) -> UInt32? {
         var id: IOPMAssertionID = 0
@@ -143,12 +148,15 @@ final class MorisTaskStore: ObservableObject {
     private(set) var token: String
     private let storage: UserDefaults
     private let now: () -> Date
+    private let isAvailable: Bool
     private var recent: [Date] = []
     private var dismissTask: Task<Void, Never>?
 
-    init(storage: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+    init(storage: UserDefaults = .standard, now: @escaping () -> Date = Date.init, isAvailable: Bool = MorisTaskFeature.isEnabled) {
+        self.isAvailable = isAvailable
         self.storage = storage; self.now = now
-        bridgeEnabled = storage.bool(forKey: "moris.tasks.enabled")
+        bridgeEnabled = isAvailable && storage.bool(forKey: "moris.tasks.enabled")
+        if !isAvailable { storage.set(false, forKey: "moris.tasks.enabled") }
         token = storage.string(forKey: "moris.tasks.token") ?? UUID().uuidString
         storage.set(token, forKey: "moris.tasks.token")
     }
@@ -156,7 +164,7 @@ final class MorisTaskStore: ObservableObject {
     var runningCount: Int { records.filter { $0.state == .running }.count }
 
     @discardableResult func receive(_ url: URL) -> Bool {
-        guard bridgeEnabled, let event = MorisTaskEvent.parse(url, token: token, now: now()) else { return false }
+        guard isAvailable, bridgeEnabled, let event = MorisTaskEvent.parse(url, token: token, now: now()) else { return false }
         if let index = records.firstIndex(where: { $0.id == event.id }), event.sentAt > records[index].updated,
            records[index].state == event.state, records[index].title == event.title {
             records[index].updated = event.sentAt
@@ -192,7 +200,10 @@ final class MorisTaskStore: ObservableObject {
         storage.set(token, forKey: "moris.tasks.token")
         records = []; recent = []; dismissNotice()
     }
-    func preview() { present(title: "MORIS task preview", state: .completed, preview: true) }
+    func preview() {
+        guard isAvailable else { return }
+        present(title: "MORIS task preview", state: .completed, preview: true)
+    }
     func dismissNotice() { dismissTask?.cancel(); dismissTask = nil; notice = nil }
     private func present(title: String, state: MorisTaskState, preview: Bool = false) {
         dismissNotice()

@@ -288,8 +288,8 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
             var draggingItems: [NSDraggingItem] = []
 
             for dragItem in itemsToDrag {
-                if let pasteboardItem = createPasteboardItem(for: dragItem) {
-                    let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+                if let writer = createPasteboardWriter(for: dragItem) {
+                    let draggingItem = NSDraggingItem(pasteboardWriter: writer)
 
                     // Use the drag preview image
                     let image = dragPreviewImage ?? dragItem.icon
@@ -310,14 +310,11 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
             beginDraggingSession(with: draggingItems, event: event, source: self)
         }
         
-        private func createPasteboardItem(for item: ShelfItem) -> NSPasteboardItem? {
-            let pasteboardItem = NSPasteboardItem()
-
+        private func createPasteboardWriter(for item: ShelfItem) -> NSPasteboardWriting? {
             switch item.kind {
             case .file:
                 guard let url = ShelfStateViewModel.shared.resolveAndUpdateBookmark(for: item) else {
-                    pasteboardItem.setString(item.displayName, forType: .string)
-                    return pasteboardItem
+                    return nil
                 }
                 
                 // Start accessing security-scoped resource and keep it active during drag
@@ -326,18 +323,15 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
                     NSLog("🔐 Started security-scoped access for drag: \(url.path)")
                 }
                 
-                pasteboardItem.setString(url.absoluteString, forType: .fileURL)
-                pasteboardItem.setString(url.path, forType: .string)
-                return pasteboardItem
+                // Let AppKit write the real URL representation rather than
+                // synthesizing file-URL strings for sandboxed drag destinations.
+                return url as NSURL
 
             case .text(let string):
-                pasteboardItem.setString(string, forType: .string)
-                return pasteboardItem
+                return string as NSString
 
             case .link(let url):
-                pasteboardItem.setString(url.absoluteString, forType: .URL)
-                pasteboardItem.setString(url.absoluteString, forType: .string)
-                return pasteboardItem
+                return url as NSURL
             }
         }
         
@@ -360,7 +354,7 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
         }
         
         func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
-            ShelfSelectionModel.shared.beginDrag()
+            ShelfSelectionModel.shared.beginDrag(draggedItems)
         }
         
         
@@ -375,7 +369,10 @@ private struct DraggableClickHandler<Content: View>: NSViewRepresentable {
             draggedURLs.removeAll()
 
             // Auto-remove items from shelf if enabled and drag succeeded
-            if Defaults[.autoRemoveShelfItems] && !operation.isEmpty {
+            // Dropping onto our own share target only starts sharing. It does not
+            // mean the recipient accepted; keep entries and temporary files alive.
+            let endedInsideShelf = window?.frame.contains(screenPoint) == true
+            if Defaults[.autoRemoveShelfItems] && !operation.isEmpty && !endedInsideShelf {
                 for item in draggedItems {
                     let current = ShelfStateViewModel.shared.items.first { $0.id == item.id }
                     if current?.isPinned != true { ShelfStateViewModel.shared.remove(item) }

@@ -1,5 +1,15 @@
 # MORIS productivity — stage one
 
+## Current release status: Tasks on hold
+
+MORIS Tasks is hidden and disabled via `MorisTaskFeature.isEnabled = false`.
+The tab (including swipe navigation), task popups, badges and URL-event delivery
+are unavailable. Startup disables a previously enabled pairing preference; old
+tokens remain stored but cannot submit events while the release gate is off.
+Implementation and companion scripts remain for future work. The manual setup
+below is a developer reference, not currently available end-user functionality.
+Keep Awake remains independent and accessible through the app menu.
+
 ## Keep Awake
 
 Tasks tab and menu-bar shortcut. Uses a public IOKit PreventUserIdleSystemSleep

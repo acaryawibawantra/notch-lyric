@@ -21,7 +21,7 @@ let tabs = [
     TabModel(label: "Tools", icon: "square.grid.2x2", view: .everyday),
     TabModel(label: "Prompter", icon: "text.viewfinder", view: .prompter),
     TabModel(label: "Tasks", icon: "terminal", view: .tasks)
-]
+].filter { $0.view != .tasks || MorisTaskFeature.isEnabled }
 
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared

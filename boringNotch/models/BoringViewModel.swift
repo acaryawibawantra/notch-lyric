@@ -215,6 +215,7 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func close() {
+        guard !ShelfSelectionModel.shared.isDragging else { return }
         guard !interactionLocks.isLocked else { return }
         guard !MorisTaskStore.shared.isConfiguring else { return }
         guard !(PrompterModel.shared.isPresented && PrompterModel.shared.presentationScreenID == screenUUID) else { return }

@@ -23,10 +23,3 @@ enum ShelfItemKind: Sendable {
     let kind: ShelfItemKind
     let isTemporary: Bool
 }
-enum TempFileType { case data(Data, suggestedName: String?) }
-final class TemporaryFileStorageService {
-    static let shared = TemporaryFileStorageService()
-    func createTempFile(for type: TempFileType) async -> URL? {
-        preconditionFailure("Finder URLs must stay references, not be imported as blobs")
-    }
-}

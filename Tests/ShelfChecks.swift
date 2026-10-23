@@ -17,6 +17,11 @@ func runShelfChecks() throws {
 
     let all = [note, link, file]
     let selection = ShelfSelectionModel()
+    selection.beginDrag([file, link])
+    selection.clear()
+    precondition(selection.isDragging && selection.draggedItems.map(\.id) == [file.id, link.id])
+    selection.endDrag()
+    precondition(!selection.isDragging && selection.draggedItems.isEmpty)
     selection.setVisibleItems([note, file])
     selection.selectSingle(note)
     selection.shiftSelect(to: file, in: all)

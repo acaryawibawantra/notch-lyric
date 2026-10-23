@@ -107,12 +107,15 @@ final class ShelfSelectionModel: ObservableObject {
     }
 
     @Published private(set) var isDragging: Bool = false
+    private(set) var draggedItems: [ShelfItem] = []
 
-    func beginDrag() {
+    func beginDrag(_ items: [ShelfItem] = []) {
+        draggedItems = items
         isDragging = true
     }
 
     func endDrag() {
         isDragging = false
+        draggedItems = []
     }
 }

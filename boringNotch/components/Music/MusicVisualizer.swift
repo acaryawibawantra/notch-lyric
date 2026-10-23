@@ -8,6 +8,49 @@ import AppKit
 import Cocoa
 import SwiftUI
 
+/// One ambient surface behind both header and media, fading to the black shell.
+struct MediaNotchGradient: View {
+    var tint: Color
+    var active = true
+    var opaque = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geometry in
+            if !reduceTransparency && !opaque {
+                ZStack {
+                    RadialGradient(colors: [tint.opacity(active ? 0.30 : 0.06),
+                                            tint.opacity(active ? 0.12 : 0.025), .clear],
+                                   center: UnitPoint(x: 0.19, y: 0.58), startRadius: 0,
+                                   endRadius: geometry.size.width * 0.76)
+                    RadialGradient(colors: [tint.opacity(active ? 0.10 : 0.025), .clear],
+                                   center: .bottomTrailing, startRadius: 0,
+                                   endRadius: geometry.size.width * 0.70)
+                }
+                .mask {
+                    LinearGradient(stops: [.init(color: .clear, location: 0),
+                                           .init(color: .black, location: 0.20),
+                                           .init(color: .black, location: 0.76),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .mask {
+                    LinearGradient(stops: [.init(color: .clear, location: 0),
+                                           .init(color: .black, location: 0.10),
+                                           .init(color: .black, location: 0.88),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .leading, endPoint: .trailing)
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: tint)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: active)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 class AudioSpectrum: NSView {
     private var barLayers: [CAShapeLayer] = []
     private var barScales: [CGFloat] = []
@@ -125,17 +168,37 @@ struct AudioSpectrumView: NSViewRepresentable {
     }
 }
 
-/// Draw native spectrum bars directly, never through a SwiftUI mask.
+/// Nonzero, deterministic playback-indicator heights (not microphone analysis).
+enum CompactSpectrumMotion {
+    static func heights(at time: TimeInterval, playing: Bool, reduceMotion: Bool) -> [CGFloat] {
+        guard playing && !reduceMotion else { return [0.4, 0.7, 0.55, 0.35] }
+        let safeTime = time.isFinite ? time.truncatingRemainder(dividingBy: 60) : 0
+        return (0..<4).map { index in
+            let phase = safeTime * (5.2 + Double(index) * 0.7) + Double(index) * 1.6
+            return CGFloat(0.28 + 0.72 * (sin(phase) + 1) / 2)
+        }
+    }
+}
+
+/// SwiftUI bars participate in the same clipping/compositing as the black surface.
+/// An embedded AppKit layer can be frozen or obscured by the lyric panel's mask.
 struct CompactMusicSpectrum: View {
     @Binding var isPlaying: Bool
     var tint: Color = .white
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        Group {
-            if reduceMotion { Image(systemName: "waveform").font(.system(size: 12)).foregroundStyle(tint) }
-            else { AudioSpectrumView(isPlaying: $isPlaying, color: NSColor(tint)) }
+        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: !isPlaying || reduceMotion)) { timeline in
+            let heights = CompactSpectrumMotion.heights(at: timeline.date.timeIntervalSinceReferenceDate,
+                                                        playing: isPlaying, reduceMotion: reduceMotion)
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(0..<4) { index in
+                    Capsule().fill(tint).frame(width: 2, height: 14 * heights[index])
+                }
+            }
+            .frame(width: 16, height: 14)
         }
         .frame(width: 16, height: 14)
+        .allowsHitTesting(false)
         .accessibilityLabel(isPlaying ? "Music playing" : "Music paused")
     }
 }

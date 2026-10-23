@@ -49,7 +49,7 @@ final class SharingStateManager: ObservableObject {
 		if activeSessions > 0 { activeSessions -= 1 }
 	}
 
-	func makeDelegate(onEnd: (() -> Void)? = nil) -> SharingLifecycleDelegate {
+	func makeDelegate(onFailure: ((Error) -> Void)? = nil, onEnd: (() -> Void)? = nil) -> SharingLifecycleDelegate {
 		let id = UUID()
 		let delegate = SharingLifecycleDelegate(id: id, onEnd: { [weak self] in
 			onEnd?()
@@ -58,7 +58,7 @@ final class SharingStateManager: ObservableObject {
 			self?.beginInteraction()
 		}, onFinish: { [weak self] in
 			self?.endInteraction()
-		})
+		}, onFailure: onFailure)
 		activeDelegates[id] = delegate
 		return delegate
 	}
@@ -73,51 +73,43 @@ final class SharingLifecycleDelegate: NSObject, NSSharingServiceDelegate, NSShar
 	private let onEnd: () -> Void
 	private let onBegin: () -> Void
 	private let onFinish: () -> Void
+	private let onFailure: ((Error) -> Void)?
 
 	private var pickerActive = false
 	private var serviceInProgress = false
 	private var finished = false
-	private var timeoutTask: Task<Void, Never>?
 
-	init(id: UUID, onEnd: @escaping () -> Void, onBegin: @escaping () -> Void, onFinish: @escaping () -> Void) {
+	init(id: UUID, onEnd: @escaping () -> Void, onBegin: @escaping () -> Void, onFinish: @escaping () -> Void, onFailure: ((Error) -> Void)? = nil) {
 		self.id = id
 		self.onEnd = onEnd
 		self.onBegin = onBegin
 		self.onFinish = onFinish
+		self.onFailure = onFailure
 	}
 	
-	deinit {
-		timeoutTask?.cancel()
-	}
-
 	func markPickerBegan() {
-		guard !pickerActive else { return }
+		guard !finished, !pickerActive else { return }
 		pickerActive = true
 		onBegin()
 	}
 
 	func markServiceBegan() {
-		guard !serviceInProgress else { return }
+		guard !finished, !serviceInProgress else { return }
 		serviceInProgress = true
 		onBegin()
-		startTimeoutFallback()
 	}
-	
-	private func startTimeoutFallback() {
-		timeoutTask?.cancel()
-		timeoutTask = Task { @MainActor [weak self] in
-			try? await Task.sleep(for: .seconds(2))
-			guard let self = self, !Task.isCancelled else { return }
-			if !self.finished {
-				self.finishIfNeeded()
-			}
-		}
+
+	/// Release a registered delegate when a picker could not be anchored.
+	/// No interaction began, so do not decrement another owner's hold.
+	func cancelBeforePresentation() {
+		guard !pickerActive, !serviceInProgress, !finished else { return }
+		finished = true
+		onEnd()
 	}
 
 	private func finishIfNeeded() {
 		guard !finished else { return }
 		finished = true
-		timeoutTask?.cancel()
 		onFinish()
 		onEnd()
 	}
@@ -125,6 +117,7 @@ final class SharingLifecycleDelegate: NSObject, NSSharingServiceDelegate, NSShar
 	// MARK: - NSSharingServicePickerDelegate
 
 	func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, didChoose service: NSSharingService?) {
+		guard !finished else { return }
 		if service == nil {
 			if pickerActive && !serviceInProgress {
 				finishIfNeeded()
@@ -134,12 +127,12 @@ final class SharingLifecycleDelegate: NSObject, NSSharingServiceDelegate, NSShar
 
 		service?.delegate = self
 		serviceInProgress = true
-		startTimeoutFallback()
 	}
 
 	// MARK: - NSSharingServiceDelegate
 
 	func sharingService(_ sharingService: NSSharingService, willShareItems items: [Any]) {
+		guard !finished else { return }
 		if !pickerActive && !serviceInProgress {
 			onBegin()
 		}
@@ -151,6 +144,8 @@ final class SharingLifecycleDelegate: NSObject, NSSharingServiceDelegate, NSShar
 	}
 
 	func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
+		guard !finished else { return }
+		onFailure?(error)
 		finishIfNeeded()
 	}
 }

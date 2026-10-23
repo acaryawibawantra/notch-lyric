@@ -30,31 +30,12 @@ struct AlbumArtView: View {
     @ObservedObject var musicManager = MusicManager.shared
     @ObservedObject var vm: BoringViewModel
     let albumArtNamespace: Namespace.ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            if Defaults[.lightingEffect] {
-                albumArtBackground
-            }
             albumArtButton
         }
-    }
-
-    private var albumArtBackground: some View {
-        Image(nsImage: musicManager.albumArt)
-            .resizable()
-            .clipped()
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: Defaults[.cornerRadiusScaling]
-                        ? MusicPlayerImageSizes.cornerRadiusInset.opened
-                        : MusicPlayerImageSizes.cornerRadiusInset.closed)
-            )
-            .aspectRatio(1, contentMode: .fit)
-            .scaleEffect(x: 1.3, y: 1.4)
-            .rotationEffect(.degrees(92))
-            .blur(radius: 40)
-            .opacity(musicManager.isPlaying ? 0.5 : 0)
     }
 
     private var albumArtButton: some View {
@@ -68,7 +49,8 @@ struct AlbumArtView: View {
                 }
             }
             .buttonStyle(PlainButtonStyle())
-            .scaleEffect(musicManager.isPlaying ? 1 : 0.85)
+            .scaleEffect(musicManager.isPlaying || reduceMotion ? 1 : 0.98)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: musicManager.isPlaying)
             
             albumArtDarkOverlay
         }
@@ -78,8 +60,9 @@ struct AlbumArtView: View {
         Rectangle()
             .aspectRatio(1, contentMode: .fit)
             .foregroundColor(Color.black)
-            .opacity(musicManager.isPlaying ? 0 : 0.8)
-            .blur(radius: 50)
+            .opacity(musicManager.isPlaying ? 0 : 0.18)
+            .clipShape(RoundedRectangle(cornerRadius: MusicPlayerImageSizes.cornerRadiusInset.opened))
+            .allowsHitTesting(false)
     }
                 
 
@@ -486,7 +469,7 @@ enum MediaCompanion: String, CaseIterable, Defaults.Serializable {
 
     static var current: Self {
         let saved = Defaults[.mediaCompanion]
-        guard saved == .legacy else { return saved }
+        guard saved == .legacy else { return saved == .focus ? .timer : saved }
         if Defaults[.expandedMediaLyrics] && Defaults[.enableLyrics] { return .lyrics }
         return Defaults[.showCalendar] ? .calendar : .none
     }
@@ -496,7 +479,7 @@ enum MediaCompanion: String, CaseIterable, Defaults.Serializable {
         case .legacy, .none: "Close split"
         case .calendar: "Calendar"
         case .reminders: "To-do"
-        case .timer: "Timer"
+        case .timer: "Focus & Stopwatch"
         case .focus: "Focus"
         case .lyrics: "Lyrics"
         }
@@ -512,6 +495,15 @@ enum MediaCompanion: String, CaseIterable, Defaults.Serializable {
         case .lyrics: "text.alignleft"
         }
     }
+
+    static let shortcuts: [Self] = [.calendar, .reminders, .timer, .lyrics]
+}
+
+enum TimeToolMode: String, CaseIterable {
+    case focus = "Focus", stopwatch = "Stopwatch"
+
+    // Old Timer/Clocks preferences now open the single Focus countdown.
+    static func resolve(_ stored: String) -> Self { Self(rawValue: stored) ?? .focus }
 }
 
 struct NotchHomeView: View {
@@ -526,6 +518,7 @@ struct NotchHomeView: View {
     @Default(.lyricDisplayMode) private var lyricDisplayMode
     @Default(.mediaCompanion) private var companion
     @Default(.showCalendar) private var showCalendar
+    @AppStorage("notchLyric.toolsSection") private var timeMode = "Focus"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedCompanion: MediaCompanion { MediaCompanion.current }
@@ -538,6 +531,12 @@ struct NotchHomeView: View {
         }
         // simplified: use a straightforward opacity transition
         .transition(.opacity)
+        .onAppear {
+            if companion == .focus {
+                timeMode = TimeToolMode.focus.rawValue
+                companion = .timer
+            }
+        }
         .onChange(of: expandedMediaLyrics) { updateMediaSize() }
         .onChange(of: enableLyrics) { updateMediaSize() }
         .onChange(of: lyricDisplayMode) { updateMediaSize() }
@@ -600,7 +599,7 @@ struct NotchHomeView: View {
         HStack(spacing: 4) {
             LiveLyricsShortcut()
             Spacer(minLength: 0)
-            ForEach([MediaCompanion.calendar, .reminders, .timer, .focus, .lyrics], id: \.self) { panel in
+            ForEach(MediaCompanion.shortcuts, id: \.self) { panel in
                 Button {
                     companion = panel
                     expandedMediaLyrics = panel == .lyrics
@@ -653,129 +652,257 @@ struct NotchHomeView: View {
             .onDisappear { vm.isHoveringCalendar = false }
             .task { await calendar.reloadCalendarAndReminderLists() }
         case .reminders: FocusTaskList()
-        case .timer: MediaTimerCompanion()
-        case .focus: MediaFocusCompanion()
+        case .timer, .focus:
+            VStack(spacing: 10) {
+                TimeModePicker(selection: $timeMode)
+                TimeToolContent(mode: TimeToolMode.resolve(timeMode))
+            }
         case .lyrics: FullMediaLyricsView()
         case .none, .legacy: EmptyView()
         }
     }
 }
 
-private struct MediaTimerCompanion: View {
-    @ObservedObject private var clock = UtilityClockModel.shared
-    @Default(.toolsAccent) private var accent
-
-    private var progress: Double {
-        clock.timerDone ? 1 : clock.timerVisible ? 1 - Double(clock.remaining) / Double(max(1, clock.selectedSeconds)) : 0
-    }
+struct TimeModePicker: View {
+    @Binding var selection: String
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Label("Timer", systemImage: "timer").font(.headline)
-                Spacer()
-                Text(clock.timerDone ? "Completed" : clock.timerRunning ? "Running" : clock.timerVisible ? "Paused" : "Ready")
-                    .font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing: 4) {
+            ForEach(TimeToolMode.allCases, id: \.self) { mode in
+                Button { selection = mode.rawValue } label: {
+                    Text(mode.rawValue).font(.system(size: 11, weight: .semibold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .background(TimeToolMode.resolve(selection) == mode ? .white.opacity(0.13) : .clear, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(TimeToolMode.resolve(selection) == mode ? .white : .secondary)
+                .accessibilityAddTraits(TimeToolMode.resolve(selection) == mode ? .isSelected : [])
             }
-            Text(clock.timerDone ? "Done" : UtilityClockModel.formatted(clock.timerVisible ? clock.remaining : clock.selectedSeconds))
-                .font(.system(size: 38, weight: .medium, design: .rounded)).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.6)
-                .frame(maxWidth: .infinity)
-            ProgressView(value: min(1, max(0, progress))).tint(accent.color)
-                .accessibilityLabel("Timer progress")
-            if !clock.timerVisible || clock.timerDone {
-                HStack(spacing: 6) {
-                    ForEach([5, 15, 25], id: \.self) { minutes in
-                        Button("\(minutes)m") { clock.minutes = minutes }
-                            .frame(maxWidth: .infinity)
+        }
+        .padding(3).background(.white.opacity(0.045), in: Capsule())
+        .accessibilityLabel("Time mode")
+        .help("Switch tools without stopping a running session")
+    }
+}
+
+struct TimeToolContent: View {
+    let mode: TimeToolMode
+    var compact = true
+    @ObservedObject private var legacyClock = UtilityClockModel.shared
+
+    var body: some View {
+        ScrollView(.vertical) {
+            VStack(spacing: 8) {
+                // A countdown started before this UI update stays controllable
+                // until it finishes or the user stops it; never silently reset it.
+                if legacyClock.timerVisible && !legacyClock.timerDone {
+                    HStack {
+                        Text("Previous timer · \(UtilityClockModel.formatted(legacyClock.remaining))")
+                            .font(.caption2).monospacedDigit()
+                        Spacer(minLength: 4)
+                        Button(legacyClock.timerRunning ? "Pause" : "Resume") { legacyClock.toggleTimer() }
                             .toolButton(compact: true)
+                        Button("Stop") { legacyClock.resetTimer() }.toolButton(compact: true)
                     }
                 }
-                Stepper("\(clock.minutes) min", value: $clock.minutes, in: 1...120).font(.caption)
+                switch mode {
+                case .focus: MediaFocusCompanion(compact: compact)
+                case .stopwatch: MediaStopwatchCompanion(compact: compact)
+                }
             }
+            .padding(.bottom, 4)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
+
+private struct MediaStopwatchCompanion: View {
+    var compact = true
+    @ObservedObject private var clock = UtilityClockModel.shared
+
+    var body: some View {
+        VStack(spacing: 12) {
             HStack {
-                Button(clock.timerRunning ? "Pause" : clock.timerVisible && !clock.timerDone ? "Resume" : "Start",
-                       systemImage: clock.timerRunning ? "pause.fill" : "play.fill") { clock.toggleTimer() }
-                    .toolButton(prominent: true, compact: true)
-                Button("Reset") { clock.resetTimer() }.toolButton(compact: true)
-                    .disabled(!clock.timerVisible)
+                Label("Stopwatch", systemImage: "stopwatch").font(.headline)
+                Spacer()
+                Text(clock.stopwatchRunning ? "Running" : clock.stopwatchSeconds > 0 ? "Paused" : "Ready")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(UtilityClockModel.formatted(clock.stopwatchSeconds))
+                .font(.system(size: compact ? 38 : 52, weight: .semibold, design: .rounded)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity)
+            HStack {
+                Button(clock.stopwatchRunning ? "Pause" : clock.stopwatchSeconds > 0 ? "Resume" : "Start",
+                       systemImage: clock.stopwatchRunning ? "pause.fill" : "play.fill") { clock.toggleStopwatch() }
+                    .buttonStyle(FocusPillStyle(prominent: true, tint: .mint))
+                Button("Reset") { clock.resetStopwatch() }.buttonStyle(FocusPillStyle())
+                    .disabled(!clock.stopwatchRunning && clock.stopwatchSeconds == 0)
             }
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                Label("Stopwatch", systemImage: "stopwatch").font(.caption2)
-                Spacer(minLength: 0)
-                Text(UtilityClockModel.formatted(clock.stopwatchSeconds)).font(.caption.monospacedDigit())
-                Button {
-                    clock.toggleStopwatch()
-                } label: {
-                    Image(systemName: clock.stopwatchRunning ? "pause.fill" : "play.fill")
-                        .frame(width: 24, height: 24)
-                }.buttonStyle(.plain)
-                    .help(clock.stopwatchRunning ? "Pause stopwatch" : "Start or resume stopwatch")
-                    .accessibilityLabel(clock.stopwatchRunning ? "Pause stopwatch" : "Start or resume stopwatch")
+            Text("Track elapsed time without a countdown.").font(.caption2).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, alignment: .top)
+    }
+}
+
+
+struct FocusPillStyle: ButtonStyle {
+    var prominent = false
+    var tint: Color = Color(red: 1, green: 0.28, blue: 0.35)
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, prominent ? 20 : 12).padding(.vertical, 8)
+            .foregroundStyle(.white.opacity(isEnabled ? 1 : 0.3))
+            .background(prominent && isEnabled ? tint : .white.opacity(configuration.isPressed ? 0.13 : 0.075), in: Capsule())
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .contentShape(Capsule())
+    }
+}
+
+/// Static vector dial: animates only when the model's once-a-second value changes.
+struct FocusProgressDial: View {
+    var progress: Double
+    var tint: Color
+    var size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        ZStack {
+            if !reduceTransparency {
+                Circle().fill(RadialGradient(colors: [tint.opacity(0.22), .clear],
+                                             center: .center, startRadius: 0, endRadius: size / 2))
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+            Circle().stroke(tint.opacity(0.13), lineWidth: size * 0.09)
+            Circle().trim(from: 0, to: max(0, min(1, progress)))
+                .stroke(AngularGradient(colors: [tint.opacity(0.65), tint], center: .center),
+                        style: StrokeStyle(lineWidth: size * 0.09, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Image(systemName: "stopwatch").font(.system(size: size * 0.34, weight: .medium))
+                .foregroundStyle(.white)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(size * 0.07)
+        .frame(width: size, height: size)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: progress)
+        .accessibilityLabel("Focus time remaining")
+        .accessibilityValue("\(Int(max(0, min(1, progress)) * 100)) percent")
     }
 }
 
 private struct MediaFocusCompanion: View {
+    var compact = true
     @ObservedObject private var focus = FocusTimerModel.shared
-    @Default(.toolsAccent) private var accent
-    @Default(.mediaCompanion) private var companion
+    @FocusState private var editingGoal: Bool
 
+    private var tint: Color {
+        focus.phase == .rest ? .mint : Color(red: 1, green: 0.28, blue: 0.35)
+    }
     private var progress: Double {
-        focus.isFinished ? 1 : focus.isVisible ? 1 - Double(focus.remainingSeconds) / Double(max(1, focus.sessionMinutes * 60)) : 0
+        focus.isFinished ? 0 : focus.isVisible
+            ? Double(focus.remainingSeconds) / Double(max(1, focus.sessionMinutes * 60)) : 1
+    }
+    private var timeLabel: String {
+        UtilityClockModel.formatted(focus.isVisible ? focus.remainingSeconds : focus.durationMinutes * 60)
+    }
+    private var status: String {
+        focus.isFinished ? "Completed" : focus.isRunning ? "In progress" : focus.isVisible ? "Paused" : "Ready"
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: compact ? 8 : 10) {
             HStack {
-                Label("Focus", systemImage: "scope").font(.headline)
+                Text(focus.phase == .rest ? "Short break" : "Focus session")
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Text(focus.isFinished ? "Completed" : focus.isRunning ? "Running" : focus.isVisible ? "Paused" : "Ready")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Text(focus.goal.isEmpty ? "Choose a task in To-do, or start a focus session." : focus.goal)
-                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .center)
-            Text(focus.isFinished ? "Done" : UtilityClockModel.formatted(focus.isVisible ? focus.remainingSeconds : focus.durationMinutes * 60))
-                .font(.system(size: 38, weight: .medium, design: .rounded)).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.6)
-                .frame(maxWidth: .infinity)
-            ProgressView(value: min(1, max(0, progress))).tint(accent.color)
-                .accessibilityLabel("Focus session progress")
-            if !focus.isVisible || focus.isFinished {
-                Stepper("\(focus.durationMinutes) min", value: $focus.durationMinutes, in: 1...120).font(.caption)
-            }
-            HStack {
-                Button(focus.isRunning ? "Pause" : focus.isFinished ? "Start again" : "Start",
-                       systemImage: focus.isRunning ? "pause.fill" : "play.fill") {
-                    if focus.isRunning { focus.pause() } else { focus.start() }
-                }.toolButton(prominent: true, compact: true)
-                Button("Reset") { focus.reset() }.toolButton(compact: true)
-                    .disabled(!focus.isVisible)
-            }
-            Spacer(minLength: 0)
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Today").font(.caption2).foregroundStyle(.secondary)
-                    Text("\(focus.completedSessions) sessions · \(focus.focusedMinutesToday) min")
-                        .font(.caption2.weight(.medium)).lineLimit(1)
+                HStack(spacing: 4) {
+                    Circle().fill(focus.isRunning ? tint : .gray.opacity(0.6)).frame(width: 4, height: 4)
+                    Text(status).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 4)
-                Button { companion = .reminders } label: {
-                    Image(systemName: "checklist").frame(width: 26, height: 26)
-                }.buttonStyle(.plain).help("Choose a task from Apple Reminders")
-                    .accessibilityLabel("Choose a task from Apple Reminders")
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+            TextField("What will you focus on? (optional)", text: $focus.goal)
+                .textFieldStyle(.plain).font(.system(size: 11))
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
+                .focused($editingGoal)
+                .onSubmit { editingGoal = false }
+                .onExitCommand { editingGoal = false }
+                .disabled(focus.isVisible && !focus.isFinished)
+                .accessibilityLabel("Focus session goal")
+
+            HStack(spacing: compact ? 12 : 22) {
+                FocusProgressDial(progress: progress, tint: tint, size: compact ? 54 : 100)
+                VStack(spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(timeLabel)
+                            .font(.system(size: compact ? 36 : 46, weight: .semibold, design: .rounded))
+                            .monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
+                            .foregroundStyle(.white)
+                        if !compact {
+                            Button { focus.reset() } label: {
+                                Image(systemName: "arrow.counterclockwise").font(.system(size: 12, weight: .semibold))
+                                    .frame(width: 27, height: 27)
+                                    .background(.white.opacity(0.08), in: Circle())
+                            }
+                            .buttonStyle(.plain).disabled(!focus.isVisible)
+                            .help("Reset focus session").accessibilityLabel("Reset focus session")
+                        }
+                    }
+                    Text(focus.phase == .rest ? "Take a moment to recharge" : "One thing at a time")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                    if !focus.isVisible || focus.isFinished {
+                        HStack(spacing: 5) {
+                            Menu {
+                                ForEach([5, 15, 25, 50], id: \.self) { minutes in
+                                    Button("\(minutes) min") { focus.durationMinutes = minutes }
+                                }
+                            } label: { Text("Duration") }
+                            .menuStyle(.borderlessButton).fixedSize().font(.system(size: 10))
+                            Stepper("\(focus.durationMinutes) min", value: $focus.durationMinutes, in: 1...120)
+                                .font(.system(size: 10)).fixedSize()
+                                .accessibilityLabel("Focus duration in minutes")
+                        }
+                        .padding(.top, 3)
+                    }
+                }.frame(maxWidth: .infinity)
+            }
+            .padding(.vertical, compact ? 2 : 0)
+
+            HStack(spacing: 8) {
+                if compact {
+                    Button { focus.reset() } label: { Image(systemName: "arrow.counterclockwise") }
+                        .buttonStyle(FocusPillStyle()).disabled(!focus.isVisible)
+                        .help("Reset focus session").accessibilityLabel("Reset focus session")
+                }
+                Button {
+                    editingGoal = false
+                    if focus.isRunning { focus.pause() } else { focus.start() }
+                } label: {
+                    Label(focus.isRunning ? "Pause" : focus.isVisible && !focus.isFinished ? "Resume" : "Start",
+                          systemImage: focus.isRunning ? "pause.fill" : "play.fill")
+                        .frame(minWidth: compact ? 42 : 56)
+                }.buttonStyle(FocusPillStyle(prominent: true, tint: tint))
+                if focus.isFinished {
+                    Button(focus.phase == .focus ? "Short break" : "Next focus",
+                           systemImage: focus.phase == .focus ? "cup.and.saucer" : "scope") {
+                        if focus.phase == .focus { focus.startBreak() }
+                        else { focus.reset(); focus.start() }
+                    }.buttonStyle(FocusPillStyle())
+                }
+            }
+            Text("Today · \(focus.completedSessions) sessions · \(focus.focusedMinutesToday) min")
+                .font(.system(size: 9)).foregroundStyle(.tertiary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .onChange(of: editingGoal) { _, editing in focus.isEditingGoal = editing }
+        .onDisappear { focus.isEditingGoal = false }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
+            if notification.object is BoringNotchSkyLightWindow { editingGoal = false }
+        }
     }
 }
 

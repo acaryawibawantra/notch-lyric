@@ -21,6 +21,7 @@ struct ShelfView: View {
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var tvm = ShelfStateViewModel.shared
     @ObservedObject var selection = ShelfSelectionModel.shared
+    @ObservedObject private var quickShare = QuickShareService.shared
     @StateObject private var quickLookService = QuickLookService()
     @Default(.toolsAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -43,7 +44,7 @@ struct ShelfView: View {
     private var canConvert: Bool { !selected.isEmpty && selectedImages.count == selected.count && !processing }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             HStack(spacing: 10) {
                 TextField("Search shelf…", text: $search).textFieldStyle(.roundedBorder)
@@ -52,13 +53,13 @@ struct ShelfView: View {
                     ForEach(ShelfFilter.allCases) { Text($0.rawValue).tag($0) }
                 }.labelsHidden().pickerStyle(.segmented).tint(.gray).frame(width: 280)
             }
-            HStack(spacing: 10) {
-                FileShareView().frame(width: 82, height: 126).environmentObject(vm)
+            HStack(spacing: 12) {
+                FileShareView().frame(width: 96, height: 126).environmentObject(vm)
                 dropPanel
             }
             quickActions
         }
-        .padding(12).toolCard()
+        .toolCard()
         .tint(accent.color)
         .background(ShelfKeyboardBridge(onKey: handleKey))
         .quickLookPresenter(using: quickLookService)
@@ -69,10 +70,12 @@ struct ShelfView: View {
             status = message
             if !tvm.items.isEmpty { search = ""; filter = .all }
         }
-        .task(id: status) {
-            guard !status.isEmpty else { return }
+        .onChange(of: quickShare.feedback) { _, message in status = message }
+        .task(id: "\(quickShare.isBusy):\(status)") {
+            guard !status.isEmpty, !quickShare.isBusy else { return }
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
             guard !Task.isCancelled else { return }
+            guard !quickShare.isBusy else { return }
             status = ""
         }
         .onChange(of: searching) { _, value in selection.isEditingSearch = value }
@@ -122,6 +125,7 @@ struct ShelfView: View {
                 guard !selected.isEmpty else { return false }
                 status = "Copied \(ShelfActionService.copyItems(selected)) item(s)."
                 return true
+            case "v": pasteItems(); return true
             default: return false
             }
         }
@@ -148,6 +152,9 @@ struct ShelfView: View {
 
     private var quickActions: some View {
         HStack(spacing: 8) {
+            Button("Paste", systemImage: "doc.on.clipboard") { pasteItems() }
+                .toolButton(compact: true).disabled(processing || tvm.isLoading)
+                .help("Paste copied Finder files, images, a web link or text (⌘V)")
             Menu {
                 Button("PNG · Preserve transparency") { processImages(format: .png) }
                 Button("JPEG · Quality 90%") { processImages(format: .jpeg) }
@@ -288,7 +295,7 @@ struct ShelfView: View {
                 VStack(spacing: 5) {
                     Image(systemName: tvm.isEmpty ? "tray.and.arrow.down.fill" : "magnifyingglass").font(.title2)
                     Text(tvm.isEmpty ? "Drop files, links, or text" : "No matching items").font(.callout.weight(.medium))
-                    Text(tvm.isEmpty ? "Or use Add to choose files and folders" : "Try another filter or search")
+                    Text(tvm.isEmpty ? "Paste a link with ⌘V, or use Add for files" : "Try another filter or search")
                         .font(.caption).foregroundStyle(.secondary)
                 }.foregroundStyle(.secondary)
             } else {
@@ -336,6 +343,17 @@ struct ShelfView: View {
     }
 
     private func refreshSelection() { selection.setVisibleItems(filtered) }
+
+    private func pasteItems() {
+        let providers = ShelfDropService.providers(from: .general)
+        guard !providers.isEmpty else {
+            status = "Copy files, a PNG/TIFF image, a web link or text. Images must be at most 25 MP and 32 MB."
+            return
+        }
+        search = ""
+        filter = .all
+        tvm.load(providers)
+    }
 
     private func endClearInteraction() {
         guard clearInteractionActive else { return }
@@ -413,7 +431,7 @@ private struct ShelfShareSelectionButton: NSViewRepresentable {
     }
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.items = items
-        button.isEnabled = !items.isEmpty
+        button.isEnabled = !items.isEmpty && !QuickShareService.shared.isBusy
     }
     @MainActor final class Coordinator: NSObject {
         var items: [ShelfItem] = []

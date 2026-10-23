@@ -7,6 +7,25 @@
 import SwiftUI
 import Defaults
 
+enum CatEyeStyle: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case round = "Round"
+    case dreamy = "Dreamy"
+    case classic = "Classic"
+    var id: String { rawValue }
+
+    var aspectRatio: CGFloat {
+        switch self {
+        case .round: 1
+        case .dreamy: 0.84
+        case .classic: 0.68
+        }
+    }
+
+    func diameter(for height: CGFloat) -> CGFloat {
+        min(self == .classic ? 22 : 30, max(0, height - (self == .classic ? 12 : 8)))
+    }
+}
+
 enum CatEyePalette: String, CaseIterable, Identifiable, Defaults.Serializable {
     case pearl = "Pearl"
     case sky = "Sky"
@@ -31,9 +50,31 @@ enum CatEyePalette: String, CaseIterable, Identifiable, Defaults.Serializable {
 struct CatEyeAppearanceSettings: View {
     @Default(.showNotHumanFace) private var enabled
     @Default(.catEyePalette) private var palette
+    @Default(.catEyeStyle) private var style
 
     var body: some View {
         Toggle("Show resting cat eyes while inactive", isOn: $enabled)
+        HStack(spacing: 10) {
+            ForEach(CatEyeStyle.allCases) { option in
+                Button {
+                    style = option
+                } label: {
+                    VStack(spacing: 6) {
+                        RestingCatEyes(cameraGap: 0, height: 46, isActive: false, styleOverride: option)
+                            .frame(maxWidth: .infinity)
+                            .background(.black, in: RoundedRectangle(cornerRadius: 12))
+                        Label(option.rawValue, systemImage: style == option ? "checkmark.circle.fill" : "circle")
+                            .font(.caption)
+                            .foregroundStyle(style == option ? Color.accentColor : .secondary)
+                    }
+                    .padding(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(option.rawValue) cat eyes")
+                .accessibilityAddTraits(style == option ? .isSelected : [])
+            }
+        }
         Picker("Eye gradient", selection: $palette) {
             ForEach(CatEyePalette.allCases) { color in
                 Text(color.rawValue).tag(color)
@@ -47,7 +88,7 @@ struct CatEyeAppearanceSettings: View {
                 .padding(.horizontal, 12)
                 .background(.black, in: RoundedRectangle(cornerRadius: 12))
         }
-        Text("Soft glowing gradients with dark pupils, natural glances and random blinks. Reduce Motion keeps the eyes still.")
+        Text("Choose big round eyes, dreamy eyes or the classic cat look. Styles and gradients apply instantly to the mascot and reminders. Reduce Motion keeps the eyes still.")
             .font(.caption).foregroundStyle(.secondary)
     }
 }
@@ -57,12 +98,15 @@ struct RestingCatEyes: View {
     let cameraGap: CGFloat
     let height: CGFloat
     var isActive = true
+    var styleOverride: CatEyeStyle? = nil
     @Default(.catEyePalette) private var palette
+    @Default(.catEyeStyle) private var savedStyle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var gaze: CGFloat = 0
     @State private var blinking = false
 
-    private var eyeSize: CGFloat { min(22, max(10, height - 12)) }
+    private var style: CatEyeStyle { styleOverride ?? savedStyle }
+    private var eyeSize: CGFloat { style.diameter(for: height) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -72,7 +116,7 @@ struct RestingCatEyes: View {
         }
         .frame(height: height)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Resting cat")
+        .accessibilityLabel("Resting cat, \(style.rawValue) eyes")
         .allowsHitTesting(false)
         .task(id: isActive && !reduceMotion) {
             gaze = 0
@@ -87,7 +131,42 @@ struct RestingCatEyes: View {
         }
     }
 
-    private var eye: some View {
+    @ViewBuilder private var eye: some View {
+        if style == .classic {
+            classicEye
+        } else {
+            roundEye
+        }
+    }
+
+    private var roundEye: some View {
+        Ellipse()
+            .fill(LinearGradient(colors: [.white, palette.colors[0]], startPoint: .top, endPoint: .bottom))
+            .overlay {
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient(colors: palette.colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: eyeSize * 0.83, height: eyeSize * 0.83)
+                    Circle()
+                        .fill(.black.opacity(0.94))
+                        .frame(width: eyeSize * 0.65, height: eyeSize * 0.65)
+                    Circle().fill(.white)
+                        .frame(width: eyeSize * 0.21, height: eyeSize * 0.21)
+                        .offset(x: eyeSize * 0.14, y: -eyeSize * 0.16)
+                    Circle().fill(.white.opacity(0.7))
+                        .frame(width: eyeSize * 0.08, height: eyeSize * 0.08)
+                        .offset(x: -eyeSize * 0.13, y: eyeSize * 0.13)
+                }
+                .offset(x: gaze * eyeSize * 0.1)
+            }
+            .frame(width: eyeSize, height: eyeSize * style.aspectRatio)
+            .clipShape(Ellipse())
+            .scaleEffect(y: blinking ? 0.08 : 1)
+            .shadow(color: palette.colors[0].opacity(blinking ? 0.04 : 0.22), radius: 3)
+            .shadow(color: palette.colors[1].opacity(blinking ? 0.02 : 0.16), radius: 6)
+    }
+
+    private var classicEye: some View {
         CatEyeShape()
             .fill(LinearGradient(colors: palette.colors, startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay {

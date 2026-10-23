@@ -86,6 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard MorisTaskFeature.isEnabled else { return }
         for url in urls.prefix(8) { MorisTaskStore.shared.receive(url) }
     }
 

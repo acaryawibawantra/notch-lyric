@@ -30,7 +30,7 @@ Task { @MainActor in
     let suite = "moris.tasks.tests." + UUID().uuidString
     let storage = UserDefaults(suiteName: suite)!
     defer { storage.removePersistentDomain(forName: suite) }
-    let tasks = MorisTaskStore(storage: storage, now: { date })
+    let tasks = MorisTaskStore(storage: storage, now: { date }, isAvailable: true)
     @MainActor func url(_ id: String = "build", _ state: String = "running", token: String? = nil,
              title: String = "Fixture build", source: String = "command", timestamp: Date? = nil) -> URL {
         var parts = URLComponents(string: "moris://task")!
@@ -84,6 +84,13 @@ Task { @MainActor in
     precondition(tasks.records.isEmpty && tasks.notice == nil)
     let restored = MorisTaskStore(storage: storage)
     precondition(!restored.bridgeEnabled && restored.records.isEmpty && restored.token == tasks.token)
+    storage.set(true, forKey: "moris.tasks.enabled")
+    let held = MorisTaskStore(storage: storage, now: { date })
+    precondition(!held.bridgeEnabled && !storage.bool(forKey: "moris.tasks.enabled"))
+    held.bridgeEnabled = true // Even a stale caller cannot bypass the release gate.
+    precondition(!held.receive(url(token: held.token)) && held.records.isEmpty)
+    held.preview()
+    precondition(held.notice == nil)
     print("PASS: fake power assertions, timed/indefinite sessions, replacement, failure, timeout; opt-in paired task events, validation, replay/order guards, state notices, clearing and token reset")
     exit(0)
 }

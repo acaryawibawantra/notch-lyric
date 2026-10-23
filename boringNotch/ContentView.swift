@@ -656,31 +656,20 @@ extension View {
 
 struct FocusTimerControls: View {
     @Default(.toolsAccent) private var accent
-    @Default(.toolsRed) private var red
-    @Default(.toolsGreen) private var green
-    @Default(.toolsBlue) private var blue
-    @AppStorage("notchLyric.toolsSection") private var section = "Clocks"
+    @AppStorage("notchLyric.toolsSection") private var section = "Focus"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Tools", selection: $section) {
-                Text("Timer & Stopwatch").tag("Clocks")
-                Text("Focus session").tag("Focus")
+        VStack(alignment: .leading, spacing: 10) {
+            TimeModePicker(selection: $section).frame(width: 210)
+            HStack(alignment: .top, spacing: 20) {
+                TimeToolContent(mode: TimeToolMode.resolve(section), compact: false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                FocusTaskList().frame(width: 220)
             }
-            .pickerStyle(.segmented)
-            .tint(.gray)
-            .labelsHidden()
-            .controlSize(.regular)
-            .frame(width: 300)
-            Group {
-                if section == "Focus" {
-                    FocusSessionControls()
-                } else {
-                    ClockToolsPanel()
-                }
-            }
-            .transition(.opacity)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: section)
         .font(.system(.body))
@@ -688,207 +677,6 @@ struct FocusTimerControls: View {
     }
 }
 
-struct ClockToolsPanel: View {
-    @ObservedObject private var clocks = UtilityClockModel.shared
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Default(.toolsAccent) private var accent
-    private let presets = [30, 60, 180, 300, 600, 900, 1200, 1800, 3600]
-
-    private func presetLabel(_ seconds: Int) -> String {
-        seconds < 60 ? "\(seconds) sec" : seconds == 3600 ? "1 hr" : "\(seconds / 60) min"
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Timer", systemImage: "timer").font(.system(size: 13, weight: .semibold))
-                        Text(clocks.timerDone ? "Completed" : clocks.timerRunning ? "Counting down" : clocks.timerVisible ? "Paused" : "Choose a duration")
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                        Text(clocks.timerDone ? "Done" : UtilityClockModel.formatted(clocks.timerVisible ? clocks.remaining : clocks.selectedSeconds))
-                            .font(.system(size: 34, weight: .medium, design: .rounded)).monospacedDigit()
-                            .foregroundStyle(clocks.timerDone ? .green : .primary)
-                            .contentTransition(.numericText(countsDown: true))
-                }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                    ForEach(presets, id: \.self) { seconds in
-                        let selected = clocks.timerVisible && clocks.selectedSeconds == seconds
-                        Button { clocks.startTimer(seconds: seconds) } label: {
-                            HStack(spacing: 4) {
-                                if selected { Image(systemName: "timer").font(.caption2) }
-                                Text(presetLabel(seconds)).font(.system(size: 12, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity).frame(height: 22)
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .toolButton(compact: true)
-                        .background(selected ? accent.color.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(selected ? accent.color : .primary)
-                        .accessibilityAddTraits(selected ? [.isSelected] : [])
-                        .disabled(clocks.timerVisible && !clocks.timerDone)
-                        .help("Start a \(presetLabel(seconds)) timer")
-                    }
-                }
-                if clocks.timerVisible && !clocks.timerDone {
-                    Capsule().fill(Color.primary.opacity(0.08))
-                        .overlay(alignment: .leading) {
-                            Capsule().fill(LinearGradient(colors: [accent.color, .mint], startPoint: .leading, endPoint: .trailing))
-                                .scaleEffect(x: min(1, max(0, Double(clocks.remaining) / Double(clocks.selectedSeconds))), anchor: .leading)
-                        }
-                        .frame(height: 6)
-                        .accessibilityLabel("Timer remaining")
-                        .accessibilityValue(UtilityClockModel.formatted(clocks.remaining))
-                    HStack {
-                        Text(clocks.timerRunning ? "Running" : "Paused").font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Reset") { clocks.resetTimer() }.toolButton()
-                        Button(clocks.timerRunning ? "Pause" : "Resume", systemImage: clocks.timerRunning ? "pause.fill" : "play.fill") { clocks.toggleTimer() }
-                            .toolButton(prominent: true)
-                    }
-                } else {
-                    HStack {
-                        Stepper("\(clocks.minutes) min", value: $clocks.minutes, in: 1...120)
-                            .font(.caption)
-                        Spacer()
-                        if clocks.timerDone { Button("Dismiss") { clocks.resetTimer() } }
-                        Button("Start custom") { clocks.startTimer(seconds: clocks.minutes * 60) }
-                            .toolButton(prominent: true)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .toolCard(emphasized: true)
-
-            VStack(spacing: 10) {
-                Label("Stopwatch", systemImage: "stopwatch").font(.system(size: 13, weight: .semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(UtilityClockModel.formatted(clocks.stopwatchSeconds))
-                    .font(.system(size: 42, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.7).lineLimit(1)
-                    .contentTransition(.numericText())
-                    .padding(.top, 10)
-                Label(clocks.stopwatchRunning ? "Running" : clocks.stopwatchSeconds == 0 ? "Ready" : "Paused",
-                      systemImage: clocks.stopwatchRunning ? "circle.fill" : clocks.stopwatchSeconds == 0 ? "circle.dotted" : "pause.circle")
-                    .font(.caption).foregroundStyle(clocks.stopwatchRunning ? accent.color : .secondary)
-                HStack(spacing: 8) {
-                    Button("Stop", systemImage: "stop.fill") { clocks.stopStopwatch() }
-                        .toolButton()
-                        .disabled(!clocks.stopwatchRunning && clocks.stopwatchSeconds == 0)
-                    Button(clocks.stopwatchRunning ? "Pause" : clocks.stopwatchSeconds > 0 ? "Resume" : "Start",
-                           systemImage: clocks.stopwatchRunning ? "pause.fill" : "play.fill") { clocks.toggleStopwatch() }
-                        .toolButton(prominent: true)
-                }
-            }
-            .frame(width: 205, height: 190)
-            .toolCard(emphasized: true)
-        }
-        .controlSize(.small)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: clocks.remaining)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: clocks.stopwatchSeconds)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: clocks.timerVisible)
-    }
-}
-
-struct FocusSessionControls: View {
-    @ObservedObject private var timer = FocusTimerModel.shared
-    @Default(.toolsAccent) private var accent
-    @FocusState private var editingGoal: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var progress: Double {
-        return timer.isVisible ? Double(timer.remainingSeconds) / Double(timer.sessionMinutes * 60) : 1
-    }
-
-    private var timeLabel: String {
-        return timer.isFinished ? "Done" : UtilityClockModel.formatted(timer.isVisible ? timer.remainingSeconds : timer.durationMinutes * 60)
-    }
-
-    private var statusLabel: String {
-        return timer.isFinished ? "Completed" : timer.phase == .rest ? "Break" : timer.isRunning ? "Focusing" : "Ready to focus"
-    }
-
-    var body: some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(RadialGradient(colors: [accent.color.opacity(0.16), .clear],
-                                         center: .center, startRadius: 0, endRadius: 58))
-                Circle().stroke(Color.primary.opacity(0.12), lineWidth: 5)
-                Circle()
-                    .trim(from: 0, to: max(0, min(1, progress)))
-                    .stroke(AngularGradient(colors: [accent.color, .mint, accent.color], center: .center), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                VStack(spacing: 4) {
-                    Text(timeLabel)
-                        .font(.system(size: 30, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                    Text(statusLabel)
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 120, height: 120)
-            VStack(alignment: .leading, spacing: 7) {
-            TextField("What will you work on?", text: $timer.goal)
-                .textFieldStyle(.roundedBorder)
-                .focused($editingGoal)
-                .onSubmit { editingGoal = false }
-                .onExitCommand { editingGoal = false }
-                .accessibilityLabel("Focus session goal")
-                .disabled(timer.isVisible && !timer.isFinished)
-            HStack {
-                ForEach([15, 25, 50], id: \.self) { minutes in
-                    Button { timer.durationMinutes = minutes } label: {
-                        HStack(spacing: 4) {
-                            if timer.durationMinutes == minutes { Image(systemName: "checkmark").font(.caption2) }
-                            Text("\(minutes) min")
-                        }
-                    }
-                        .toolButton(compact: true)
-                        .foregroundStyle(timer.durationMinutes == minutes ? accent.color : .primary)
-                        .accessibilityAddTraits(timer.durationMinutes == minutes ? .isSelected : [])
-                        .disabled(timer.isVisible && !timer.isFinished)
-                }
-            }
-            Stepper("Duration: \(timer.durationMinutes) min", value: $timer.durationMinutes, in: 1...120)
-                .disabled(timer.isVisible && !timer.isFinished)
-            HStack {
-                Button(timer.isRunning ? "Pause" : timer.isVisible && !timer.isFinished ? "Resume" : "Start focus", systemImage: timer.isRunning ? "pause.fill" : "play.fill") {
-                    editingGoal = false
-                    if timer.isRunning { timer.pause() } else { timer.start() }
-                }
-                .toolButton(prominent: true)
-                Button("Reset") { timer.reset() }
-                    .toolButton()
-                    .disabled(!timer.isVisible)
-                if timer.isFinished {
-                    Button(timer.phase == .focus ? "Break" : "Next focus") {
-                        if timer.phase == .focus { timer.startBreak() }
-                        else { timer.reset(); timer.start() }
-                    }
-                    .toolButton()
-                }
-            }
-            Label("\(timer.completedSessions) sessions · \(timer.focusedMinutesToday) min today", systemImage: "chart.bar.fill")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
-            }
-            Rectangle().fill(.white.opacity(0.07)).frame(width: 1, height: 165).accessibilityHidden(true)
-            FocusTaskList().frame(width: 185)
-        }
-        .padding(.horizontal, 8)
-        .toolCard(emphasized: true)
-        .onChange(of: editingGoal) { _, editing in timer.isEditingGoal = editing }
-        .onDisappear { timer.isEditingGoal = false }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
-            if notification.object is BoringNotchSkyLightWindow { editingGoal = false }
-        }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: timer.remainingSeconds)
-    }
-}
 
 struct FocusSessionPreferences: View {
     @ObservedObject private var timer = FocusTimerModel.shared
@@ -1035,7 +823,7 @@ struct ContentView: View {
     }
 
     private var showsTaskPopup: Bool {
-        codingTasks.notice != nil && !codingTasks.isConfiguring && wellnessSessionUnlocked && !vm.hideOnClosed && vm.notchState == .closed
+        MorisTaskFeature.isEnabled && codingTasks.notice != nil && !codingTasks.isConfiguring && wellnessSessionUnlocked && !vm.hideOnClosed && vm.notchState == .closed
             && !coordinator.firstLaunch && !coordinator.helloAnimationRunning && !coordinator.expandingView.show
             && !coordinator.sneakPeek.show && !showsCallPopup && !showsAgendaPopup && !showsWellnessBanner && !showsDevicePopup
             && !vm.anyDropZoneTargeting && !shelfSelection.isDragging && !shelfSelection.isPreviewing
@@ -1153,6 +941,12 @@ struct ContentView: View {
                     )
                     .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
                     .frame(width: vm.notchState == .open ? vm.notchSize.width : nil, height: vm.notchState == .open ? vm.notchSize.height : nil, alignment: .top)
+                    .background {
+                        if vm.notchState == .open && coordinator.currentView == .home && Defaults[.lightingEffect] && !showsPrompterReading {
+                            MediaNotchGradient(tint: Color(nsColor: musicManager.avgColor).ensureMinimumBrightness(factor: 0.3),
+                                               active: !musicManager.isPlayerIdle)
+                        }
+                    }
                     .background(.black)
                     .clipShape(currentNotchShape)
                     .overlay(alignment: .top) {
@@ -1199,13 +993,13 @@ struct ContentView: View {
                     }
                     .conditionalModifier(Defaults[.enableGestures]) { view in
                         view
-                            .panGesture(direction: .down) { translation, phase in
+                            .panGesture(direction: .down, capturesMouseDrag: vm.notchState == .closed) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures]) { view in
                         view
-                            .panGesture(direction: .up) { translation, phase in
+                            .panGesture(direction: .up, capturesMouseDrag: false) { translation, phase in
                                 handleUpGesture(translation: translation, phase: phase)
                             }
                     }
@@ -1368,6 +1162,22 @@ struct ContentView: View {
         .animation(.smooth, value: gestureProgress)
         .background(dragDetector)
         .background(PrompterNotchAnchor(viewModel: vm))
+        .background(TabSwipeMonitor(canNavigate: {
+            Defaults[.enableGestures] && Defaults[.swipeToSwitchTabs] &&
+            vm.notchState == .open && !showsPrompterReading &&
+            !vm.interactionLocks.isLocked && !vm.anyDropZoneTargeting &&
+            !shelfSelection.isDragging && !shelfSelection.isPreviewing &&
+            !shelfSelection.isEditingSearch && !focusTimer.isEditingGoal &&
+            !focusTasks.isEditing && !clipboardHistory.isEditing &&
+            !PrompterModel.shared.isEditing && !codingTasks.isConfiguring
+        }, navigate: { step in
+            let available = tabs.filter { $0.view != .shelf || Defaults[.boringShelf] }
+            guard let index = available.firstIndex(where: { $0.view == coordinator.currentView }),
+                  available.indices.contains(index + step) else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                coordinator.currentView = available[index + step].view
+            }
+        }))
         .background {
             FloatingLyricsPanel(
                 isVisible: floatingLyricsVisible && floatingLyricStyle == .transparent,
@@ -1391,6 +1201,10 @@ struct ContentView: View {
             } else if !isHovering && vm.notchState == .open {
                 handleHover(false)
             }
+        }
+        .onChange(of: shelfSelection.isDragging) { _, dragging in
+            if dragging { hoverTask?.cancel() }
+            else if !isHovering && vm.notchState == .open { handleHover(false) }
         }
         .onChange(of: focusTimer.isEditingGoal) { _, editing in
             if !editing && !isHovering && vm.notchState == .open {
@@ -1446,8 +1260,8 @@ struct ContentView: View {
 
     @ViewBuilder
     func NotchLayout() -> some View {
-        VStack(alignment: .leading) {
-            VStack(alignment: .leading) {
+        VStack(alignment: vm.notchState == .open ? .leading : .center) {
+            VStack(alignment: vm.notchState == .open ? .leading : .center) {
                 if coordinator.helloAnimationRunning {
                     Spacer()
                     HelloAnimation(onFinish: {
@@ -1561,7 +1375,8 @@ struct ContentView: View {
                     case .prompter:
                         PrompterEditorView()
                     case .tasks:
-                        MorisTasksView()
+                        if MorisTaskFeature.isEnabled { MorisTasksView() }
+                        else { NotchHomeView(albumArtNamespace: albumArtNamespace) }
                     }
                 }
                 .transition(
@@ -1723,7 +1538,7 @@ struct ContentView: View {
             isActive: !showsTaskPopup && !showsWellnessBanner && !showsDevicePopup && !showsAgendaPopup && !showsCallPopup
         )
         .overlay(alignment: .bottomTrailing) {
-            if codingTasks.runningCount > 0 {
+            if MorisTaskFeature.isEnabled && codingTasks.runningCount > 0 {
                 Circle().fill(.blue).frame(width: 5, height: 5)
                     .accessibilityLabel("\(codingTasks.runningCount) local tasks running")
             }
